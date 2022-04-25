@@ -9,7 +9,7 @@ textwrap (probably included with python3 at this point)
 
 Usage: 
 1. Open up bot.py in a text editor of your choice.
-2. Put your discord bot API token in the APP_TOKEN variable (as a string)
+2. Put your discord bot API token in the APP_TOKEN in config.json.
 3. Save.
 4. Tell your bot where to go using Discords bot control panel.
 5. Launch with bot.py
@@ -18,11 +18,10 @@ Successful launch will hang and have a message saying: "OHRRPGCE What's New Bot 
 
 Commands:
 !whatsnew (nightly or release)
-
 Pulls down the nightly (or release) whatsnew.txt for the MOST RECENT version of the OHR. Nightly is the most recent nightly, obviously. 
 
-!help whatsnew
-Displays some really obvious help.
+!nightly_updates
+Displays just changes made to the nightly whatsnew since the last use of this command, or since !whatsnew nightly
 
 There is currently a 30 second timeout _per server_ for using this command. You can easily write it out, but, you don't really want to go around spamming people with a ton of text, or ddosing the whatsnew.txt. :P
 
