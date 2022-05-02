@@ -19,7 +19,7 @@ with open (os.path.join(SAVE_FOLDER,"config.json"),'r') as fi:
     CONFIG = json.load(fi)
 
 APP_TOKEN = CONFIG["APP_TOKEN"]
-
+time_ticker = 0
 
 
 def save_whatsnew(url=None,text_content=None):
@@ -135,15 +135,19 @@ async def on_message(message):
             print ("Supplied !whatsnew without argument.")
 
 
-@tasks.loop(hours = 24)
+@tasks.loop(hours=24)
 async def called_once_a_day():
+    global time_ticker
+    time_ticker=time_ticker+1
+    if time_ticker < 8: # This is to prevent discords awful task system from exploding when starting up.
+        return None     # Otherwise it gets about halfway through this routine 8 times when you start up.
+    print ("Triggered.")
     text_channel_list = []
     for guild in client.guilds:
         for channel in guild.text_channels:
             text_channel_list.append(channel)
 
-    for message_channel in text_channel_list:
-        
+    for message_channel in text_channel_list:      
         print(f"Got channel {message_channel}")
         msg = []
         msg = get_just_changes(url=NIGHTLY_WHATSNEW_URL)
@@ -156,11 +160,15 @@ async def called_once_a_day():
                     await message_channel.send(msg)
                     time.sleep(MSG_DELAY)
                 except:
+                    print ("Couldn't post message in "+message_channel)
                     pass
+    
 @called_once_a_day.before_loop
 async def before():
+    print("Preparing scheduled task...")
     await client.wait_until_ready()
-    print("Scheduled task ready.")
+    
+
 
 
 called_once_a_day.start()
