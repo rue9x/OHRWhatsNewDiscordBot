@@ -2,7 +2,7 @@ import discord
 from urllib.request import urlopen
 import textwrap
 import time
-from discord.ext import commands
+from discord.ext import commands, tasks
 import os
 import json
 
@@ -19,6 +19,8 @@ with open (os.path.join(SAVE_FOLDER,"config.json"),'r') as fi:
     CONFIG = json.load(fi)
 
 APP_TOKEN = CONFIG["APP_TOKEN"]
+
+
 
 def save_whatsnew(url=None,text_content=None):
     if url == NIGHTLY_WHATSNEW_URL:
@@ -133,7 +135,35 @@ async def on_message(message):
             print ("Supplied !whatsnew without argument.")
 
 
+@tasks.loop(hours = 24)
+async def called_once_a_day():
+    text_channel_list = []
+    for guild in client.guilds:
+        for channel in guild.text_channels:
+            text_channel_list.append(channel)
 
+    for message_channel in text_channel_list:
+        
+        print(f"Got channel {message_channel}")
+        msg = []
+        msg = get_just_changes(url=NIGHTLY_WHATSNEW_URL)
+        if msg == []: 
+            print ("No new updates.")
+        else:
+            print ("Posting updates in available chats.")
+            for each in msg:
+                try:
+                    await message_channel.send(msg)
+                    time.sleep(MSG_DELAY)
+                except:
+                    pass
+@called_once_a_day.before_loop
+async def before():
+    await client.wait_until_ready()
+    print("Scheduled task ready.")
+
+
+called_once_a_day.start()
 # EXECUTES THE BOT WITH THE SPECIFIED TOKEN. TOKEN HAS BEEN REMOVED AND USED JUST AS AN EXAMPLE.
 client.run(APP_TOKEN)
 
