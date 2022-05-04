@@ -3,6 +3,8 @@ from urllib.request import urlopen
 import textwrap
 import time
 from discord.ext import commands, tasks
+from discord import Permissions
+from discord import channel
 import os
 import json
 
@@ -14,14 +16,14 @@ MAX_CONTENT_LENGTH = 2000-6 # -6 to supply block formatting.
 MSG_DELAY = 3
 END_OF_UPDATE_TEXT = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 client = commands.Bot(command_prefix='!')
+channel_id = 967512401941499974
 
 with open (os.path.join(SAVE_FOLDER,"config.json"),'r') as fi:
     CONFIG = json.load(fi)
 
 APP_TOKEN = CONFIG["APP_TOKEN"]
 time_ticker = 0
-
-
+  
 def save_whatsnew(url=None,text_content=None):
     if url == NIGHTLY_WHATSNEW_URL:
         fn = "nightly.txt"
@@ -97,10 +99,11 @@ async def whatsnew(ctx,release_or_nightly:str):
 
 @commands.cooldown(rate=1, per=30, type=commands.BucketType.guild)
 @client.command(name='nightly_updates',help="Just displays and updates what is new in the update, not the entire nightly.")
-async def nightly_updates(ctx):
+async def nightly_updates(ctx,warn_msg=True):
     msg = get_just_changes(url=NIGHTLY_WHATSNEW_URL)
     if len(msg) < 1:
-        await ctx.send(f"No changes in nightly, sorry!")
+        if warn_msg == True:
+            await ctx.send(f"No changes in nightly, sorry!")
     else:
         await ctx.send(f"Nightly changes\n----------")    
         for each in msg: 
@@ -134,44 +137,29 @@ async def on_message(message):
         if "!whatsnew" in message:
             print ("Supplied !whatsnew without argument.")
 
-
-@tasks.loop(hours=24)
-async def called_once_a_day():
-    global time_ticker
-    time_ticker=time_ticker+1
-    if time_ticker < 8: # This is to prevent discords awful task system from exploding when starting up.
-        return None     # Otherwise it gets about halfway through this routine 8 times when you start up.
-    print ("Triggered.")
-    text_channel_list = []
-    for guild in client.guilds:
-        for channel in guild.text_channels:
-            text_channel_list.append(channel)
-
-    for message_channel in text_channel_list:      
-        print(f"Got channel {message_channel}")
-        msg = []
-        msg = get_just_changes(url=NIGHTLY_WHATSNEW_URL)
-        if msg == []: 
-            print ("No new updates.")
-        else:
-            print ("Posting updates in available chats.")
-            for each in msg:
-                try:
-                    await message_channel.send(msg)
-                    time.sleep(MSG_DELAY)
-                except:
-                    print ("Couldn't post message in "+message_channel)
-                    pass
-    
-@called_once_a_day.before_loop
-async def before():
-    print("Preparing scheduled task...")
-    await client.wait_until_ready()
-    
+async def on_command_error(ctx, error):
+    if isinstance(error, bad_commands):
+        print(f'{error}')
+    if isinstance(error, BotMissingPermissions):
+        print(f'ERROR: Forbidden. Missing Permissions!')
+    if isinstance(error, BotMissingAnyRole):
+       print(f'ERROR: Bot Missing Any Role')
+    if isinstance(error, BotMissingRole):
+        print(f'ERROR: Bot Missing Role')
+    if isinstance(error, CommandInvokeError):
+        print(f'{error}')
 
 
+@tasks.loop(hours=1)
+async def nightly_checker():
+    global channel_id
+    a = client.get_channel(channel_id)
+    try:
+        await nightly_updates(a,warn_msg=False)
+    except:
+        pass
+nightly_checker.start()
 
-called_once_a_day.start()
 # EXECUTES THE BOT WITH THE SPECIFIED TOKEN. TOKEN HAS BEEN REMOVED AND USED JUST AS AN EXAMPLE.
 client.run(APP_TOKEN)
 
