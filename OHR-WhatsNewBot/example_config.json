@@ -1,0 +1,10 @@
+{
+	"APP_TOKEN": "Insert your app token here.",
+	"ALLOWED_CHANNELS": [
+	  123456789012345, 987654321012345
+	],
+	"COOLDOWN_TIME": 120,
+	"MSG_SIZE": 1976,
+	"RELEASE_WHATSNEW_URL": "https://hamsterrepublic.com/ohrrpgce/whatsnew.txt",
+	"NIGHTLY_WHATSNEW_URL": "https://raw.githubusercontent.com/ohrrpgce/ohrrpgce/wip/whatsnew.txt"
+  }
