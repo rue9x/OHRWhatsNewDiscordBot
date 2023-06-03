@@ -37,3 +37,5 @@ Started OHR WhatsNew Bot
 2. No error control (connection errors, etc)
 
 3. No command to kill bot.
+
+4. Cooldown effects the whole bot, not just the user/channel.
