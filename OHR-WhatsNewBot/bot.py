@@ -1,165 +1,129 @@
 import discord
-from urllib.request import urlopen
-import textwrap
-import time
-from discord.ext import commands, tasks
-from discord import Permissions
-from discord import channel
+from discord.ext import commands
 import os
 import json
+import urllib.request
+import textwrap
+import re
 
-NIGHTLY_WHATSNEW_URL = "https://raw.githubusercontent.com/ohrrpgce/ohrrpgce/wip/whatsnew.txt"
-RELEASE_WHATSNEW_URL = "https://hamsterrepublic.com/ohrrpgce/whatsnew.txt"
-APP_TOKEN = ""
-SAVE_FOLDER = os.path.dirname(os.path.realpath(__file__))
-MAX_CONTENT_LENGTH = 2000-6 # -6 to supply block formatting.
-MSG_DELAY = 3
-END_OF_UPDATE_TEXT = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
-client = commands.Bot(command_prefix='!')
-channel_id = 967512401941499974
 
+SAVE_FOLDER = ""
+SAVE_FOLDER = os.getcwd() + os.sep
+
+# Globals are loaded from config.
 with open (os.path.join(SAVE_FOLDER,"config.json"),'r') as fi:
     CONFIG = json.load(fi)
-
 APP_TOKEN = CONFIG["APP_TOKEN"]
-time_ticker = 0
-  
-def save_whatsnew(url=None,text_content=None):
-    if url == NIGHTLY_WHATSNEW_URL:
-        fn = "nightly.txt"
-    if url == RELEASE_WHATSNEW_URL:
-        fn = "release.txt"
-    
-    with open (os.path.join(SAVE_FOLDER, fn),'w') as fo:
-        for each_line in text_content: # this is a list
-            fo.write(each_line)
-        print ("Updated "+fn)
+NIGHTLY_WHATSNEW_URL = CONFIG["NIGHTLY_WHATSNEW_URL"]
+RELEASE_WHATSNEW_URL = CONFIG["RELEASE_WHATSNEW_URL"] 
+COOLDOWN_TIME = CONFIG["COOLDOWN_TIME"]
+MSG_SIZE = CONFIG["MSG_SIZE"]
 
+def compare_release_notes(old_notes, new_notes):
+    '''
+    Takes old_notes (previous release's whatsnew.txt) and the new_notes (nightly whatsnew.txt).
+    Returns a list of lines displaying only whats new in the nightly release.
+    '''
+    # Read the contents of the old release notes
+    with open(old_notes, 'r') as old_file:
+        old_lines = [line.strip() for line in old_file.readlines() if line.strip()]
 
-def get_whatsnew(url=None,save_update=False):
-    if url == NIGHTLY_WHATSNEW_URL or url == NIGHTLY_WHATSNEW_URL:
-        content = urlopen(url).read()
-        content = (content.decode('utf-8'))
-        content = content.split("*** New Features")
-        content = content[0] + content[1] # Should just be the most recent release/WIP release.
-        split_string = textwrap.wrap(content, MAX_CONTENT_LENGTH,replace_whitespace=False,break_long_words=False)
-        for each_text in END_OF_UPDATE_TEXT:
-            if each_text in split_string[-1].lower():
-                del split_string[-1]
+    # Read the contents of the new release notes
+    with open(new_notes, 'r') as new_file:
+        new_lines = [line.strip() for line in new_file.readlines() if line.strip()]
+
+    retval = ""
+
+    # Define common date formats to match
+    date_formats = [
+        r"%B %d %Y",           # January 3 2016
+        r"%B %d, %Y",          # January 3, 2016
+        r"%b %d %Y",           # Jan 3 2016
+        r"%b %d, %Y",          # Jan 3, 2016
+        r"%B %dst %Y",         # January 3rd 2016
+        r"%B %dnd %Y",         # January 23rd 2016
+        r"%B %drd %Y",         # January 3rd 2016
+        r"%B %dth %Y",         # January 3rd 2016
+    ]
+
+    # Define a pattern to match common date formats
+    date_pattern = r"\b(\w+ \d{1,2}(?:st|nd|rd|th)?,? \d{4})\b"
+
+    i = 0 # For counting how many times we've seen a date.
+    for line in new_lines:  
+        edit_line = line
+        if "***" in edit_line: # Add some extra formatting for new sections (which start with ***)
+            edit_line = "\n\n"+edit_line
+
+        match = re.search(date_pattern, edit_line)
+        if match != None:
+            if i == 0 :
+                retval = retval + edit_line.replace(match.group(0),"") + "\n"
+                i = i + 1 # We allow the first date in the file to show up (as it is the new update)
+            if i > 0:
+                # We don't allow any more dates. Second time we see a date it means we're in the previous update.
+                return retval
         
-        if save_update == True:
-            save_whatsnew(url=url,text_content=split_string)
-        
-        return split_string
-    else:
-        return None
-
-def get_just_changes(url=None):
-    if url == NIGHTLY_WHATSNEW_URL:
-        fn = "nightly.txt"
-    elif url == RELEASE_WHATSNEW_URL:
-        fn = "release.txt"
-    else:
-        return None
+        if edit_line not in old_lines:
+            # Compare the old release with the new release. If it's new, add it.
+            # We use edit_line to ensure the new formatted lines end up in the update.
+            retval = retval + edit_line + "\n"       
     
-    with open (os.path.join(SAVE_FOLDER, fn),'r') as fi:
-        old_whatsnew = fi.readlines()
-
-    get_whatsnew(url=url,save_update=True)
-
-    with open (os.path.join(SAVE_FOLDER, fn),'r') as fi:
-        new_whatsnew = fi.readlines()
-
-    new_updates = list()
-    for each in new_whatsnew:
-        if each in old_whatsnew:
-            pass
-        else:
-            new_updates.append(each)
-
-    return new_updates
+    return retval
 
 
-@commands.cooldown(rate=1, per=30, type=commands.BucketType.guild)
-@client.command(name='whatsnew',help='Retrieves and displays the most recent nightly/release version of whatsnew.txt from HamsterRepublic.')
-async def whatsnew(ctx,release_or_nightly:str):
-    if release_or_nightly.lower() == "release":
-        url_to_use = RELEASE_WHATSNEW_URL
-
-    if release_or_nightly.lower() == "nightly":
-        url_to_use = NIGHTLY_WHATSNEW_URL
-
-    if release_or_nightly.lower() == "release" or release_or_nightly.lower() == "nightly":
-    # SENDS BACK A MESSAGE TO THE CHANNEL.
-        msg = get_whatsnew(url=url_to_use,save_update=True)
-        await ctx.send(f"{release_or_nightly} Whatsnew: {url_to_use}\n----------")
-        for each in msg: 
-            await ctx.send("```"+each+"```")
-            time.sleep(MSG_DELAY)
-
-@commands.cooldown(rate=1, per=30, type=commands.BucketType.guild)
-@client.command(name='nightly_updates',help="Just displays and updates what is new in the update, not the entire nightly.")
-async def nightly_updates(ctx,warn_msg=True):
-    msg = get_just_changes(url=NIGHTLY_WHATSNEW_URL)
-    if len(msg) < 1:
-        if warn_msg == True:
-            await ctx.send(f"No changes in nightly, sorry!")
-    else:
-        await ctx.send(f"Nightly changes\n----------")    
-        for each in msg: 
-            await ctx.send(each)
-            time.sleep(MSG_DELAY)
+def save_from_url(url, file_path):
+    ''' 
+    Takes a url (preferably a whatsnew.txt) and file_path (where to save it).
+    '''
+    try:
+        urllib.request.urlretrieve(url, file_path)
+        print(f"File downloaded successfully and saved as {file_path}")
+    except Exception as e:
+        print(f"Error occurred while downloading the file: {str(e)}")
 
 
-@client.event
+
+# Discord setup:
+intents = discord.Intents.all()
+intents.typing = False  # Disable typing events to reduce unnecessary event handling
+allowed_channels = list(CONFIG["ALLOWED_CHANNELS"])  # Replace with the desired channel IDs
+bot = commands.Bot(command_prefix="!", intents=intents)
+@bot.event
 async def on_ready():
-    # CREATES A COUNTER TO KEEP TRACK OF HOW MANY GUILDS / SERVERS THE BOT IS CONNECTED TO.
-    guild_count = 0
+    print(f"Logged in as {bot.user.name}")
+    print ("Started OHR WhatsNew Bot")
+    print("------")
 
-    # LOOPS THROUGH ALL THE GUILD / SERVERS THAT THE BOT IS ASSOCIATED WITH.
-    for guild in client.guilds:
-        # PRINT THE SERVER'S ID AND NAME.
-        print(f"- {guild.id} (name: {guild.name})")
-
-        # INCREMENTS THE GUILD COUNTER.
-        guild_count = guild_count + 1
-
-    # PRINTS HOW MANY GUILDS / SERVERS THE BOT IS IN.
-    print("OHRRPGCE What's New Bot is in " + str(guild_count) + " guilds.")
-
-@client.event
-async def on_message(message):
-    if(message.author == client.user):
+@bot.command()
+@commands.cooldown(1, COOLDOWN_TIME, commands.BucketType.user)
+async def whatsnew(ctx):
+    if ctx.channel.id not in allowed_channels:
+        await ctx.send("This command is not allowed in this channel.")
         return
-    try:
-        await client.process_commands(message)
-    except:
-        if "!whatsnew" in message:
-            print ("Supplied !whatsnew without argument.")
+    old_release_notes_file = 'release.txt'
+    new_release_notes_file = 'nightly.txt'
+    save_from_url(RELEASE_WHATSNEW_URL,old_release_notes_file)
+    save_from_url(NIGHTLY_WHATSNEW_URL,new_release_notes_file)
 
+    # Call the compare_release_notes function
+    output_message = compare_release_notes(old_release_notes_file, new_release_notes_file)
+    # Split the output message into chunks at word boundaries
+    wrapped_message = textwrap.wrap(output_message, width=2000, break_long_words=False,replace_whitespace=False)
+    
+    # Send each chunk as a separate message, formatted in code blocks
+    for chunk in wrapped_message:
+        # Find the last space character within the 2000-character limit
+        last_space_index = chunk[:MSG_SIZE].rfind(' ')
+        
+        # Truncate the chunk to the last space character, or the 2000-character limit if no space found
+        truncated_chunk = chunk[:last_space_index] if last_space_index != -1 else chunk[:MSG_SIZE]
+        
+        formatted_chunk = f"```{truncated_chunk}```"
+        await ctx.send(formatted_chunk)
+@bot.event
 async def on_command_error(ctx, error):
-    if isinstance(error, bad_commands):
-        print(f'{error}')
-    if isinstance(error, BotMissingPermissions):
-        print(f'ERROR: Forbidden. Missing Permissions!')
-    if isinstance(error, BotMissingAnyRole):
-       print(f'ERROR: Bot Missing Any Role')
-    if isinstance(error, BotMissingRole):
-        print(f'ERROR: Bot Missing Role')
-    if isinstance(error, CommandInvokeError):
-        print(f'{error}')
+    if isinstance(error, commands.CommandOnCooldown):
+        await ctx.send(f'This command is on cooldown, you can use it in {round(error.retry_after, 2)} seconds.')
 
-
-@tasks.loop(hours=1)
-async def nightly_checker():
-    global channel_id
-    a = client.get_channel(channel_id)
-    try:
-        await nightly_updates(a,warn_msg=False)
-    except:
-        pass
-nightly_checker.start()
-
-# EXECUTES THE BOT WITH THE SPECIFIED TOKEN. TOKEN HAS BEEN REMOVED AND USED JUST AS AN EXAMPLE.
-client.run(APP_TOKEN)
-
+bot.run(APP_TOKEN)

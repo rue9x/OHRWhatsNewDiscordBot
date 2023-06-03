@@ -1,0 +1,5 @@
+config.json
+*.txt
+OHR-WhatsNewBot/config.json
+OHR-WhatsNewBot/*.json
+OHR-WhatsNewBot/*.txt
