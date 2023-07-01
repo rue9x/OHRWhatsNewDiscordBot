@@ -8,49 +8,37 @@ def compare_release_notes(old_notes, new_notes):
     '''
     # Read the contents of the old release notes
     with open(old_notes, 'r') as old_file:
-        old_lines = [line.strip() for line in old_file.readlines() if line.strip()]
+        old_lines = old_file.readlines()
 
     # Read the contents of the new release notes
     with open(new_notes, 'r') as new_file:
-        new_lines = [line.strip() for line in new_file.readlines() if line.strip()]
+        new_lines = new_file.readlines()
 
+    # A pattern to match release headers: no indentation and a [release name]
+    release_pattern = r"\S.*\[.+\]"
+
+    releases = 0  # How many releases we've seen
     retval = ""
 
-    # Define common date formats to match
-    date_formats = [
-        r"%B %d %Y",           # January 3 2016
-        r"%B %d, %Y",          # January 3, 2016
-        r"%b %d %Y",           # Jan 3 2016
-        r"%b %d, %Y",          # Jan 3, 2016
-        r"%B %dst %Y",         # January 3rd 2016
-        r"%B %dnd %Y",         # January 23rd 2016
-        r"%B %drd %Y",         # January 3rd 2016
-        r"%B %dth %Y",         # January 3rd 2016
-    ]
-
-    # Define a pattern to match common date formats
-    date_pattern = r"\b(\w+ \d{1,2}(?:st|nd|rd|th)?,? \d{4})\b"
-
-    i = 0 # For counting how many times we've seen a date.
     for line in new_lines:  
-        edit_line = line
+        edit_line = line.strip('\n')
+        keep = False
         if "***" in edit_line: # Add some extra formatting for new sections (which start with ***)
             edit_line = "\n\n"+edit_line
+            keep = True
 
-        match = re.search(date_pattern, edit_line)
+        match = re.match(release_pattern, line)
         if match != None:
-            if i == 0 :
-                retval = retval + edit_line.replace(match.group(0),"") + "\n"
-                i = i + 1 # We allow the first date in the file to show up (as it is the new update)
-            if i > 0:
-                # We don't allow any more dates. Second time we see a date it means we're in the previous update.
+            keep = True
+            releases += 1
+            if releases > 1:
+                # Show only the first release in the file (the new/upcoming update)
                 return retval
-        
-        if edit_line not in old_lines:
+
+        if keep or line not in old_lines:
             # Compare the old release with the new release. If it's new, add it.
-            # We use edit_line to ensure the new formatted lines end up in the update.
-            retval = retval + edit_line + "\n"       
-    
+            retval = retval + edit_line + "\n"
+
     return retval
 
 
@@ -74,3 +62,8 @@ def compare_urls(oldurl, newurl):
     save_from_url(newurl, new_release_notes_file)
 
     return compare_release_notes(old_release_notes_file, new_release_notes_file)
+
+if __name__ == '__main__':
+    # For testing
+    print(compare_urls("https://hamsterrepublic.com/ohrrpgce/whatsnew.txt",
+                       "https://raw.githubusercontent.com/ohrrpgce/ohrrpgce/wip/whatsnew.txt"))
