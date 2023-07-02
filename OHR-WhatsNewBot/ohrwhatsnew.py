@@ -1,18 +1,37 @@
 import re
 import urllib.request
 
+def parse_items(lines, unwrap = False):
+    """Combine lines into items, which either header lines or blocks starting with *.
+    If unwrap, returns a list of long lines (ending in newlines if lines does),
+    otherwise returns a list of strings containing multiple newlines."""
+    items = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped == '':
+            continue
+        if not line.startswith(' ') or stripped.startswith('*') or stripped == 'Highlights:':
+            items.append(line)
+        else:
+            if unwrap:
+                items[-1] = items[-1].rstrip() + ' ' + line.lstrip()
+            else:
+                items[-1] = items[-1] + line
+    return items
+
 def compare_release_notes(old_notes, new_notes):
     '''
-    Takes old_notes (previous release's whatsnew.txt) and the new_notes (nightly whatsnew.txt).
-    Returns a list of lines displaying only whats new in the nightly release.
+    Takes old_notes and new_notes, paths to two versions of whatsnew.txt.
+    Returns (as a string) only those lines in new_notes for the newest release
+    that aren't in old_notes, or which are section headers.
     '''
     # Read the contents of the old release notes
     with open(old_notes, 'r') as old_file:
-        old_lines = old_file.readlines()
+        old_items = parse_items(old_file.readlines())
 
     # Read the contents of the new release notes
     with open(new_notes, 'r') as new_file:
-        new_lines = new_file.readlines()
+        new_items = parse_items(new_file.readlines())
 
     # A pattern to match release headers: no indentation and a [release name]
     release_pattern = r"\S.*\[.+\]"
@@ -20,14 +39,14 @@ def compare_release_notes(old_notes, new_notes):
     releases = 0  # How many releases we've seen
     retval = ""
 
-    for line in new_lines:  
-        edit_line = line.strip('\n')
+    for item in new_items:
+        edit_item = item.strip('\n')
         keep = False
-        if "***" in edit_line: # Add some extra formatting for new sections (which start with ***)
-            edit_line = "\n\n"+edit_line
+        if "***" in edit_item: # Add some extra formatting for new sections (which start with ***)
+            edit_item = "\n\n"+edit_item
             keep = True
 
-        match = re.match(release_pattern, line)
+        match = re.match(release_pattern, item)
         if match != None:
             keep = True
             releases += 1
@@ -35,9 +54,9 @@ def compare_release_notes(old_notes, new_notes):
                 # Show only the first release in the file (the new/upcoming update)
                 return retval
 
-        if keep or line not in old_lines:
+        if keep or item not in old_items:
             # Compare the old release with the new release. If it's new, add it.
-            retval = retval + edit_line + "\n"
+            retval += edit_item + "\n"
 
     return retval
 
