@@ -1,7 +1,10 @@
+#!/usr/bin/env python3
+
 import re
 import urllib.request
+import difflib
 
-def parse_items(lines, unwrap = False):
+def parse_items(lines, unwrap = True):
     """Combine lines into items, which either header lines or blocks starting with *.
     If unwrap, returns a list of long lines (ending in newlines if lines does),
     otherwise returns a list of strings containing multiple newlines."""
@@ -10,14 +13,28 @@ def parse_items(lines, unwrap = False):
         stripped = line.strip()
         if stripped == '':
             continue
+        # "Highlights" is a special case missing a '*'
         if not line.startswith(' ') or stripped.startswith('*') or stripped == 'Highlights:':
             items.append(line)
         else:
             if unwrap:
-                items[-1] = items[-1].rstrip() + ' ' + line.lstrip()
+                items[-1] = items[-1].rstrip()
+                if not items[-1].endswith('-'):
+                    items[-1] += ' '
+                items[-1] += line.lstrip()
             else:
                 items[-1] = items[-1] + line
     return items
+
+def pairwise(iterable):
+    """Same as itertools.pairwise (Python 3.10+):
+    Return successive overlapping pairs taken from the input iterable."""
+    #return zip(iterable, iterable[1:])
+    iterable = iter(iterable)
+    prev = next(iterable)
+    for item in iterable:
+        yield prev, item
+        prev = item
 
 def compare_release_notes(old_notes, new_notes):
     '''
@@ -35,28 +52,66 @@ def compare_release_notes(old_notes, new_notes):
 
     # A pattern to match release headers: no indentation and a [release name]
     release_pattern = r"\S.*\[.+\]"
+    indent_pattern = re.compile(' *')
+
+    def indentation(line):
+        "Number of indenting spaces"
+        return indent_pattern.match(line).end()  # Always matches
 
     releases = 0  # How many releases we've seen
     retval = ""
+    # The section headers that are above the current item which haven't yet been added to retval
+    header_stack = []
 
-    for item in new_items:
-        edit_item = item.strip('\n')
-        keep = False
+    diffitems = list(difflib.ndiff(old_items, new_items, charjunk=lambda x: x in " _{}.[]"))
+    diffitems_set = set(diffitems)
+
+    for ditem, nextditem in pairwise(diffitems):
+        # diffitem starts with "  ", "+ ", "- " or "? "
+        tag = ditem[0]
+        # if tag == '?':
+        #     continue
+
+        item = ditem[2:]
+        indent = indentation(item)
+        next_indent = indentation(nextditem[2:])
+
+        # Prune items from the header_stack
+        while header_stack and indentation(header_stack[-1][2:]) >= indent:
+            header_stack.pop()
+
+        edit_item = ditem
         if "***" in edit_item: # Add some extra formatting for new sections (which start with ***)
-            edit_item = "\n\n"+edit_item
-            keep = True
+            edit_item = "\n" + edit_item
 
-        match = re.match(release_pattern, item)
-        if match != None:
-            keep = True
-            releases += 1
-            if releases > 1:
-                # Show only the first release in the file (the new/upcoming update)
-                return retval
+        if tag in "+-?":
+            # Add delayed headers
+            retval += ''.join(header_stack)
+            header_stack = []
+        elif next_indent > indent:
+            if len(edit_item) > 80:
+                # Sometimes items which are new features have sub-bullet points but are
+                # quite long, so limit the length of header lines
+                edit_item = edit_item[:80] + "...\n"
+            header_stack.append(edit_item)
 
-        if keep or item not in old_items:
-            # Compare the old release with the new release. If it's new, add it.
-            retval += edit_item + "\n"
+        # Show only the first release in the file (the new/upcoming update)
+        #if re.match(release_pattern, item):
+        #    releases += 1
+        #    if releases > 1:
+        #        return retval
+
+        # Ignore items which are moved unchanged
+        if tag == '+' and ('- ' + item) in diffitems_set:
+            tag = ' '
+        if tag == '-' and ('+ ' + item) in diffitems_set:
+            tag = ' '
+
+        if tag == '?':
+            edit_item = ' ' + edit_item[1:]
+
+        if tag in "-+?":
+            retval += edit_item
 
     return retval
 
