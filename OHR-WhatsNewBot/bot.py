@@ -2,7 +2,6 @@ import discord
 from discord.ext import commands
 import os
 import json
-import textwrap
 import ohrwhatsnew
 
 SAVE_FOLDER = ""
@@ -28,6 +27,19 @@ async def on_ready():
     print ("Started OHR WhatsNew Bot")
     print("------")
 
+def chunk_message(message):
+    "Split a string at line breaks into chunks at most MSG_SIZE in length."
+    while len(message):
+        # Split off a chunk at the last newline before MSG_SIZE
+        if len(message) > MSG_SIZE:
+            break_index = message[:MSG_SIZE].rfind('\n')
+            if break_index == -1:
+                break_index = MSG_SIZE
+        else:
+            break_index = len(message)
+        yield message[:break_index]
+        message = message[break_index:]
+
 @bot.command()
 @commands.cooldown(1, COOLDOWN_TIME, commands.BucketType.user)
 async def whatsnew(ctx):
@@ -37,21 +49,15 @@ async def whatsnew(ctx):
 
     output_message = ohrwhatsnew.compare_urls(RELEASE_WHATSNEW_URL, NIGHTLY_WHATSNEW_URL)
 
-    # Split the output message into chunks at word boundaries
-    wrapped_message = textwrap.wrap(output_message, width=2000, break_long_words=False,replace_whitespace=False)
-    
-    # Send each chunk as a separate message, formatted in code blocks
-    for chunk in wrapped_message:
-        # Find the last space character within the 2000-character limit
-        last_space_index = chunk[:MSG_SIZE].rfind(' ')
-        
-        # Truncate the chunk to the last space character, or the 2000-character limit if no space found
-        truncated_chunk = chunk[:last_space_index] if last_space_index != -1 else chunk[:MSG_SIZE]
-        
-        formatted_chunk = f"```{truncated_chunk}```"
+    # If the output is long split into multiple messages
+    for chunk in chunk_message(output_message):
+        # Formatted in code blocks
+        formatted_chunk = f"```{chunk}```"
         await ctx.send(formatted_chunk)
+
 @bot.event
 async def on_command_error(ctx, error):
+    print("command_error:", error)
     if isinstance(error, commands.CommandOnCooldown):
         await ctx.send(f'This command is on cooldown, you can use it in {round(error.retry_after, 2)} seconds.')
 
