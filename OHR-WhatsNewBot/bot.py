@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 import os
 import json
+import traceback
 import ohrwhatsnew
 
 SAVE_FOLDER = ""
@@ -57,8 +58,10 @@ async def whatsnew(ctx):
 
 @bot.event
 async def on_command_error(ctx, error):
-    print("command_error:", error)
     if isinstance(error, commands.CommandOnCooldown):
         await ctx.send(f'This command is on cooldown, you can use it in {round(error.retry_after, 2)} seconds.')
+    print("----\n on_command_error:")
+    traceback.print_exception(type(error), error, error.__traceback__)
+    print("----")
 
 bot.run(APP_TOKEN)
