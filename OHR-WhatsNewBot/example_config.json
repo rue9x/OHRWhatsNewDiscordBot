@@ -7,6 +7,7 @@
 	"MINUTES_PER_CHECK": 240,
 	"COOLDOWN_TIME": 120,
 	"MSG_SIZE": 1976,
+	"EMBED_SIZE": 4000,
 	"RELEASE_WHATSNEW_URL": "https://hamsterrepublic.com/ohrrpgce/whatsnew.txt",
 	"GITHUB_REPO": "ohrrpgce/ohrrpgce",
 	"GITHUB_BRANCH": "wip",

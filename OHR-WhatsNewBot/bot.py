@@ -24,6 +24,7 @@ UPDATES_CHANNEL = CONFIG["UPDATES_CHANNEL"]
 MINUTES_PER_CHECK = CONFIG["MINUTES_PER_CHECK"]
 COOLDOWN_TIME = CONFIG["COOLDOWN_TIME"]
 MSG_SIZE = CONFIG["MSG_SIZE"]
+EMBED_SIZE = CONFIG["EMBED_SIZE"]  # Max size of an embed description. Documented as 4096, API error says 6000
 
 def save_path(filename):
     return os.path.join(SAVE_FOLDER, filename)
@@ -65,12 +66,16 @@ class UpdateChecker:
     async def report_commits(self, commits, ctx = None):
         "Send a message listing 'commits' (as an embed)"
         msg = '\n'.join(cmt.short_format(hyperlink = True) for cmt in commits)
-        embed = discord.Embed()
-        embed.title = "New commits to " + GITHUB_REPO + " " + self.branch
-        embed.url = f'https://github.com/{GITHUB_REPO}/commits/'
-        embed.description = msg
-        print(msg)
-        await self.message(ctx, embed = embed)
+        first = True
+        for chunk in chunk_message(msg, EMBED_SIZE):
+            print(msg)
+            embed = discord.Embed()
+            if first:
+                embed.title = "New commits to " + GITHUB_REPO + " " + self.branch
+                embed.url = f'https://github.com/{GITHUB_REPO}/commits/'
+                first = False
+            embed.description = chunk
+            await self.message("", ctx, embed = embed)
 
     def print_state(self):
         "Log internal state, for debugging."
@@ -102,6 +107,8 @@ class UpdateChecker:
             return False
         if verbose:
             print("new REPO sha", new_repo_sha)
+
+        # Limited to at most 100 new commits at a time.
         new_commits = self.repo.last_commits(self.branch, 100, since = self.last_commit)
         await self.report_commits(new_commits, ctx)
 
@@ -151,18 +158,18 @@ async def on_ready():
     else:
         global update_checker
         update_checker = UpdateChecker(bot)
-        update_checker.check.start()
+        #update_checker.check.start()
     # Be cute
     await bot.change_presence(activity = discord.Activity(type = discord.ActivityType.watching, name = "OHRRPGCE changes"))
 
-def chunk_message(message):
-    "Split a string at line breaks into chunks at most MSG_SIZE in length."
+def chunk_message(message, chunk_size = MSG_SIZE):
+    "Split a string at line breaks into chunks at most chunk_size in length."
     while len(message):
-        # Split off a chunk at the last newline before MSG_SIZE
-        if len(message) > MSG_SIZE:
-            break_index = message[:MSG_SIZE].rfind('\n')
+        # Split off a chunk at the last newline before chunk_size
+        if len(message) > chunk_size:
+            break_index = message[:chunk_size].rfind('\n')
             if break_index == -1:
-                break_index = MSG_SIZE
+                break_index = chunk_size
         else:
             break_index = len(message)
         yield message[:break_index]
