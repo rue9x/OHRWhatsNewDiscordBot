@@ -3,7 +3,7 @@ from discord.ext import commands, tasks
 import os
 import json
 import traceback
-import ohrwhatsnew
+import ohrlogs
 import github
 
 # Enable verbose logging to console
@@ -53,7 +53,7 @@ class UpdateChecker:
         if not dest_path:
             dest_path = repo_path
         url = self.repo.blob_url(ref, repo_path)
-        ohrwhatsnew.save_from_url(url, save_path(dest_path))
+        ohrlogs.save_from_url(url, save_path(dest_path))
 
     async def message(self, msg, ctx = None, **kwargs):
         print(msg)
@@ -126,7 +126,7 @@ class UpdateChecker:
         # github seems to cache it rather than providing actual latest.
         self.download_revision(new_whatsnew_sha, "whatsnew.txt", 'whatsnew.txt.new')
 
-        changes = ohrwhatsnew.compare_release_notes(save_path('whatsnew.txt'), save_path('whatsnew.txt.new'))
+        changes = ohrlogs.compare_release_notes(save_path('whatsnew.txt'), save_path('whatsnew.txt.new'))
         if not changes:  # Odd...
             if verbose:
                 print("no text changes to whatsnew.txt")
@@ -201,7 +201,7 @@ async def whatsnew(ctx):
         await ctx.send("This command is not allowed in this channel.")
         return
 
-    output_message = ohrwhatsnew.compare_urls(RELEASE_WHATSNEW_URL, NIGHTLY_WHATSNEW_URL)
+    output_message = ohrlogs.compare_urls(RELEASE_WHATSNEW_URL, NIGHTLY_WHATSNEW_URL)
 
     # If the output is long split into multiple messages
     for chunk in chunk_message(output_message):
