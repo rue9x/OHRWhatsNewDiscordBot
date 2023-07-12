@@ -9,6 +9,7 @@
 	"MSG_SIZE": 1976,
 	"EMBED_SIZE": 4000,
 	"RELEASE_WHATSNEW_URL": "https://hamsterrepublic.com/ohrrpgce/whatsnew.txt",
+	"NIGHTLY_CHECK_URL": "https://hamsterrepublic.com/ohrrpgce/nightly/nightly-check.ini",
 	"GITHUB_REPO": "ohrrpgce/ohrrpgce",
 	"GITHUB_BRANCH": "wip",
 }

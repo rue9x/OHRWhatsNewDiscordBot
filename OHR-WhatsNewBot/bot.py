@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 import os
+import posixpath
 import json
 import traceback
 import ohrlogs
@@ -18,6 +19,7 @@ with open (os.path.join(SAVE_FOLDER,"config.json"),'r') as fi:
     CONFIG = json.load(fi)
 APP_TOKEN = CONFIG["APP_TOKEN"]
 RELEASE_WHATSNEW_URL = CONFIG["RELEASE_WHATSNEW_URL"]
+NIGHTLY_CHECK_URL = CONFIG["NIGHTLY_CHECK_URL"]
 GITHUB_REPO = CONFIG["GITHUB_REPO"]
 GITHUB_BRANCH = CONFIG["GITHUB_BRANCH"]
 UPDATES_CHANNEL = CONFIG["UPDATES_CHANNEL"]
@@ -184,6 +186,31 @@ async def check(ctx):
     ret = await update_checker.check(ctx)
     if not ret:
         await ctx.send("No changes.", silent = True)
+
+@bot.command(aliases = ['nightly', 'builds'])
+async def nightlies(ctx):
+    print("!nightlies")
+    view = discord.ui.View()
+
+    builds  = ohrlogs.get_builds(NIGHTLY_CHECK_URL)
+    nightly_dir = posixpath.split(NIGHTLY_CHECK_URL)[0]
+    max_rev = max(build.svn_rev for build in builds)
+    min_rev = min(build.svn_rev for build in builds)
+
+    for build in builds:
+        print(build)
+        if build.svn_rev < max_rev:
+            emoji = "💤"  # Indicate it's out of date
+        else:
+            emoji = None
+        but = discord.ui.Button(label = build.label(), url = build.url, emoji = emoji)
+        view.add_item(but)
+
+    but = discord.ui.Button(label = "See all", url = nightly_dir, emoji = "📁")
+    view.add_item(but)
+
+    note = ' (some are out of date)' if max_rev > min_rev else ''
+    await ctx.send(f'🛠️ Nightly build downloads and commit built{note}:', view = view, silent = True)
 
 @bot.command()
 async def rewind_commits(ctx, n: int):

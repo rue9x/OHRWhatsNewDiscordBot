@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import os
+import posixpath
 import re
 import urllib.request
+import configparser
 import difflib
 
 def parse_items(lines, unwrap = True):
@@ -143,6 +145,49 @@ def compare_urls(oldurl, newurl):
     save_from_url(newurl, new_release_notes_file, True)
 
     return compare_release_notes(old_release_notes_file, new_release_notes_file)
+
+class EngineBuild:
+    def __init__(self, name, url, svn_rev):
+        self.name = name
+        self.url = url
+        self.svn_rev = svn_rev
+
+    def label(self):
+        return self.name + ": r" + str(self.svn_rev)
+
+    def __str__(self):
+        return self.label() + " " + self.url
+
+def get_builds(nightly_check_url, path = 'nightly-check.ini'):
+    "Download nightly_check_url to path and parse it, returning a list of EngineBuilds"
+
+    save_from_url(nightly_check_url, path, True)
+
+    nightly_dir = posixpath.split(nightly_check_url)[0] + '/'
+
+    config = configparser.ConfigParser()
+    config.read(path)
+
+    def check_build(buildname, os, player_ext, base, suffix, nightly_ext):
+        player_file = f'ohrrpgce-player-{os}-wip-{suffix}{player_ext}'
+        nightly_url = nightly_dir + f'{base}-wip-{suffix}{nightly_ext}'
+
+        if player_file in config:
+            section = config[player_file]
+            build = EngineBuild(buildname, nightly_url, int(section['svn_rev']))
+            ret.append(build)
+        else:
+            print(f"warning: {player_file} missing from nightly-check.ini")
+
+    ret = []
+    check_build('Windows',      'win',   '.zip',    'ohrrpgce-win',   'sdl2',   '.zip')
+    check_build('Win 95',       'win',   '.zip',    'ohrrpgce-win',   'win95',  '.zip')
+    check_build('Linux x86_64', 'linux', '.zip',    'ohrrpgce-linux', 'x86_64', '.tar.bz2')
+    check_build('Linux x86',    'linux', '.zip',    'ohrrpgce-linux', 'x86',    '.tar.bz2')
+    check_build('Mac x86_64',   'mac',   '.tar.gz', 'OHRRPGCE',       'x86_64', '.dmg')
+    check_build('Mac x86',      'mac',   '.tar.gz', 'OHRRPGCE',       'x86',    '.dmg')
+    return ret
+
 
 if __name__ == '__main__':
     # For testing
