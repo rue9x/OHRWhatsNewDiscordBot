@@ -36,14 +36,14 @@ class UpdateChecker:
     def __init__(self, bot):
         self.repo = github.GitHubRepo(GITHUB_REPO)
         self.branch = GITHUB_BRANCH
+        self.last_commit = self.repo.last_commits(self.branch, 1)[0]
         self.current_shas = {}
-        self.current_shas['REPO'] = self.repo.current_sha(self.branch)
+        #self.current_shas['REPO'] = self.repo.current_sha(self.branch)
         self.current_shas['whatsnew.txt'] = self.repo.last_sha_touching(self.branch, 'whatsnew.txt')
-        if verbose:
-            print("REPO sha", self.current_shas['REPO'])
-            print("whatsnew.txt sha", self.current_shas['REPO'])
-
         self.download_revision(self.current_shas['whatsnew.txt'], "whatsnew.txt")
+
+        if verbose:
+            self.print_state()
 
         self.channel = bot.get_channel(UPDATES_CHANNEL)
 
@@ -54,33 +54,64 @@ class UpdateChecker:
         url = self.repo.blob_url(ref, repo_path)
         ohrwhatsnew.save_from_url(url, save_path(dest_path))
 
-    async def message(self, msg, ctx = None):
+    async def message(self, msg, ctx = None, **kwargs):
         print(msg)
         if ctx:
             channel = ctx
         else:
             channel = self.channel
-        await channel.send(msg, silent = True)
+        await channel.send(msg, silent = True, **kwargs)
+
+    async def report_commits(self, commits, ctx = None):
+        "Send a message listing 'commits' (as an embed)"
+        msg = '\n'.join(cmt.short_format(hyperlink = True) for cmt in commits)
+        embed = discord.Embed()
+        embed.title = "New commits to " + GITHUB_REPO + " " + self.branch
+        embed.url = f'https://github.com/{GITHUB_REPO}/commits/'
+        embed.description = msg
+        print(msg)
+        await self.message(ctx, embed = embed)
+
+    def print_state(self):
+        "Log internal state, for debugging."
+        print("Status:")
+        print(" last_commit:", self.last_commit.sha)
+        print(" ", self.last_commit)
+        print(" whatsnew commit:", self.current_shas['whatsnew.txt'])
+
+    def rewind_commits(self, n):
+        "Rewind the state to n commits before HEAD. For debugging."
+        self.last_commit = self.repo.last_commits(self.branch, n + 1)[-1]
+        # Although this commit didn't necessarily change whatsnew.txt, it
+        # has the effect of replaying any changes to it since.
+        self.current_shas['whatsnew.txt'] = self.last_commit.sha
+        self.download_revision(self.last_commit.sha, 'whatsnew.txt')
 
     @tasks.loop(minutes = MINUTES_PER_CHECK)
     async def check(self, ctx = None):
-        """Check for new commits and for changes to whatsnew.txt. Return True if anything sent."""
+        """Check for new commits and for changes to whatsnew.txt.
+        Returns True if any message was sent.
+        ctx:  channel or (command) Context to send to"""
+        if verbose:
+            print("UpdateChecker.check")
 
         new_repo_sha = self.repo.current_sha(self.branch)
-        if new_repo_sha == self.current_shas['REPO']:
+        if new_repo_sha == self.last_commit.sha:
             if verbose:
                 print("check: No new commits")
             return False
         if verbose:
             print("new REPO sha", new_repo_sha)
+        new_commits = self.repo.last_commits(self.branch, 100, since = self.last_commit)
+        await self.report_commits(new_commits, ctx)
 
         # There's been a new commit, but check whether whatsnew.txt actually changed before downloading it
         new_whatsnew_sha = self.repo.last_sha_touching(self.branch, 'whatsnew.txt')
         if new_whatsnew_sha == self.current_shas['whatsnew.txt']:
             if verbose:
                 print("new commit, but didn't touch whatsnew.txt")
-            self.current_shas['REPO'] = new_repo_sha
-            return False
+            self.last_commit = new_commits[0]
+            return True
         if verbose:
             print("new whatsnew.txt sha", new_whatsnew_sha)
 
@@ -92,12 +123,12 @@ class UpdateChecker:
         if not changes:  # Odd...
             if verbose:
                 print("no text changes to whatsnew.txt")
-            return False
+            return True
 
         await self.message(f"```{changes}```", ctx)
 
-        # Update state only if the message was sent successfully
-        self.current_shas['REPO'] = new_repo_sha
+        # Update state only if all messages were sent successfully
+        self.last_commit = new_commits[0]
         self.current_shas['whatsnew.txt'] = new_whatsnew_sha
         os.rename(save_path('whatsnew.txt.new'), save_path('whatsnew.txt'))
         return True
@@ -145,7 +176,16 @@ async def check(ctx):
         return
     ret = await update_checker.check(ctx)
     if not ret:
-        await ctx.send("No changes.")
+        await ctx.send("No changes.", silent = True)
+
+@bot.command()
+async def rewind_commits(ctx, n: int):
+    "For testing."
+    print("!rewind_commits", n)
+    update_checker.rewind_commits(n)
+    await ctx.send("Rewound.", silent = True)
+    if verbose:
+        update_checker.print_state()
 
 @bot.command()
 @commands.cooldown(1, COOLDOWN_TIME, commands.BucketType.user)

@@ -5,11 +5,11 @@ import time
 verbose = True
 
 
-def format_time(t) -> str:
+def format_date(t) -> str:
     "Format time since epoch in ISO 8601 format, as used by GitHub APIs"
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
 
-def parse_time(t) -> float:
+def parse_date(t) -> float:
     "Parse time in ISO 8601 format into a tuple"
     return time.mktime(time.strptime(t, "%Y-%m-%dT%H:%M:%S%z"))
 
@@ -44,7 +44,7 @@ class GitCommit:
             self.headline = self.headline[:80] + '...'
 
         self.author = commit['commit']['author']['name']
-        self.date = parse_time(commit['commit']['committer']['date'])
+        self.date = parse_date(commit['commit']['committer']['date'])
         self.url = commit['html_url']
 
     def rev(self) -> str:
@@ -53,8 +53,14 @@ class GitCommit:
             return 'r' + str(self.svn_rev)
         return self.sha[:6]
 
+    def short_format(self, hyperlink = False):
+        if hyperlink:
+            return f"[{self.rev()}]({self.url}): {self.headline} [{self.author}]"
+        else:
+            return f"{self.rev()}: {self.headline} [{self.author}]"
+
     def __str__(self):
-        return f"{self.rev()}: {self.headline} [{self.author}]"
+        return self.short_format()
 
     def format(self):
         ret = ('=' * 40) + "\n"
@@ -121,14 +127,23 @@ class GitHubRepo:
         "Returns sha for last commit touching a path"
         return self.last_commits(ref, 1, path)[0].sha
 
-    def last_commits(self, ref, num = 1, touching_path = None):
+    def last_commits(self, ref, num = 40, touching_path = None, since: GitCommit = None):
         """"Get list of last `num` GitCommits to a branch/tag, optionally touching a file.
         num is limited to 100."""
         # Not equivalent to get('/commits/ + ref)
-        resp = self.get_json('/commits', {'sha': ref, 'path': touching_path, 'per_page': num})
+        since_date = None
+        if since:
+            since_date = format_date(since.date - 1)
+
+        resp = self.get_json('/commits', {'sha': ref, 'path': touching_path, 'since': since_date, 'per_page': num})
         ret = []
-        for commit in resp:
-            ret.append(GitCommit(commit))
+        #print(f"/commits {ref} since {since_date} returned {len(resp)}")
+        for jsoncommit in resp:
+            commit = GitCommit(jsoncommit)
+            if since and commit.sha == since.sha:
+                break
+            ret.append(commit)
+        #print(f" kept {len(ret)} commits")
         return ret
 
 
