@@ -121,6 +121,8 @@ async def on_ready():
         global update_checker
         update_checker = UpdateChecker(bot)
         update_checker.check.start()
+    # Be cute
+    await bot.change_presence(activity = discord.Activity(type = discord.ActivityType.watching, name = "OHRRPGCE changes"))
 
 def chunk_message(message):
     "Split a string at line breaks into chunks at most MSG_SIZE in length."
