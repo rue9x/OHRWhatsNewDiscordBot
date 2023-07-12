@@ -57,6 +57,8 @@ def compare_release_notes(old_notes, new_notes):
 
     def indentation(line):
         "Number of indenting spaces"
+        line = line.lstrip('\n')  # Remove extra space before a header
+        line = line[2:]  # Remove the tag
         return indent_pattern.match(line).end()  # Always matches
 
     releases = 0  # How many releases we've seen
@@ -74,11 +76,11 @@ def compare_release_notes(old_notes, new_notes):
         #     continue
 
         item = ditem[2:]
-        indent = indentation(item)
-        next_indent = indentation(nextditem[2:])
+        indent = indentation(ditem)
+        next_indent = indentation(nextditem)
 
         # Prune items from the header_stack
-        while header_stack and indentation(header_stack[-1][2:]) >= indent:
+        while header_stack and indentation(header_stack[-1]) >= indent:
             header_stack.pop()
 
         edit_item = ditem
