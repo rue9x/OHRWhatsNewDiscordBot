@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import re
 import urllib.request
 import difflib
@@ -115,25 +116,29 @@ def compare_release_notes(old_notes, new_notes):
 
     return retval
 
-
-def save_from_url(url, file_path):
+def save_from_url(url, file_path, cache = False):
     ''' 
     Takes a url (preferably a whatsnew.txt) and file_path (where to save it).
     '''
+    if cache and os.path.isfile(file_path):
+        print(f"Already downloaded {url} as {file_path}")
+        return
+
     try:
+        print(f"Fetching {url}")
         urllib.request.urlretrieve(url, file_path)
         print(f"File downloaded successfully and saved as {file_path}")
     except Exception as e:
         print(f"Error occurred while downloading the file: {str(e)}")
-
+        raise
 
 def compare_urls(oldurl, newurl):
     "Fetch old and new whatsnew.txt and return a description of the changes"
 
     old_release_notes_file = 'release.txt'
-    new_release_notes_file = 'nightly.txt'
-    save_from_url(oldurl, old_release_notes_file)
-    save_from_url(newurl, new_release_notes_file)
+    new_release_notes_file = 'whatsnew.txt'
+    save_from_url(oldurl, old_release_notes_file, True)
+    save_from_url(newurl, new_release_notes_file, True)
 
     return compare_release_notes(old_release_notes_file, new_release_notes_file)
 
