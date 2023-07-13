@@ -33,18 +33,19 @@ def save_path(filename):
 
 
 class UpdateChecker:
-    """Checks for and reports new commits (not finished) or changes to whatsnew.txt in GITHUB_REPO.
+    """Checks for and reports new commits (not finished) or changes to watched_logs in GITHUB_REPO.
     Call check.start() to start periodic checks."""
+
+    watched_logs = ['whatsnew.txt', 'IMPORTANT-nightly.txt']
 
     def __init__(self, bot):
         self.repo = github.GitHubRepo(GITHUB_REPO)
         self.branch = GITHUB_BRANCH
         self.last_commit = self.repo.last_commits(self.branch, 1)[0]
         self.current_shas = {}
-        #self.current_shas['REPO'] = self.repo.current_sha(self.branch)
-        self.current_shas['whatsnew.txt'] = self.repo.last_sha_touching(self.branch, 'whatsnew.txt')
-        self.download_revision(self.current_shas['whatsnew.txt'], "whatsnew.txt")
-
+        for logname in self.watched_logs:
+            self.current_shas[logname] = self.repo.last_sha_touching(self.branch, logname)
+            self.download_revision(self.current_shas[logname], logname)
         if verbose:
             self.print_state()
 
@@ -84,19 +85,21 @@ class UpdateChecker:
         print("Status:")
         print(" last_commit:", self.last_commit.sha)
         print(" ", self.last_commit)
-        print(" whatsnew commit:", self.current_shas['whatsnew.txt'])
+        for logname in self.watched_logs:
+            print(f" {logname} commit:", self.current_shas[logname])
 
     def rewind_commits(self, n):
         "Rewind the state to n commits before HEAD. For debugging."
         self.last_commit = self.repo.last_commits(self.branch, n + 1)[-1]
-        # Although this commit didn't necessarily change whatsnew.txt, it
-        # has the effect of replaying any changes to it since.
-        self.current_shas['whatsnew.txt'] = self.last_commit.sha
-        self.download_revision(self.last_commit.sha, 'whatsnew.txt')
+        # Although this commit didn't necessarily touch the log files, this
+        # has the effect of replaying any changes to them since.
+        for logname in self.watched_logs:
+            self.current_shas[logname] = self.last_commit.sha
+            self.download_revision(self.last_commit.sha, logname)
 
     @tasks.loop(minutes = MINUTES_PER_CHECK)
     async def check(self, ctx = None):
-        """Check for new commits and for changes to whatsnew.txt.
+        """Check for new commits and for changes to IMPORTANT-nightly.txt & whatsnew.txt.
         Returns True if any message was sent.
         ctx:  channel or (command) Context to send to"""
         if verbose:
@@ -105,41 +108,41 @@ class UpdateChecker:
         new_repo_sha = self.repo.current_sha(self.branch)
         if new_repo_sha == self.last_commit.sha:
             if verbose:
-                print("check: No new commits")
+                print(" No new commits")
             return False
         if verbose:
-            print("new REPO sha", new_repo_sha)
+            print(" New HEAD", new_repo_sha)
 
         # Limited to at most 100 new commits at a time.
         new_commits = self.repo.last_commits(self.branch, 100, since = self.last_commit)
         await self.report_commits(new_commits, ctx)
-
-        # There's been a new commit, but check whether whatsnew.txt actually changed before downloading it
-        new_whatsnew_sha = self.repo.last_sha_touching(self.branch, 'whatsnew.txt')
-        if new_whatsnew_sha == self.current_shas['whatsnew.txt']:
-            if verbose:
-                print("new commit, but didn't touch whatsnew.txt")
-            self.last_commit = new_commits[0]
-            return True
-        if verbose:
-            print("new whatsnew.txt sha", new_whatsnew_sha)
-
-        # Download specifying the exact sha to download rather than just the branch, as otherwise
-        # github seems to cache it rather than providing actual latest.
-        self.download_revision(new_whatsnew_sha, "whatsnew.txt", 'whatsnew.txt.new')
-
-        changes = ohrlogs.compare_release_notes(save_path('whatsnew.txt'), save_path('whatsnew.txt.new'))
-        if not changes:  # Odd...
-            if verbose:
-                print("no text changes to whatsnew.txt")
-            return True
-
-        await self.message(f"```{changes}```", ctx)
-
-        # Update state only if all messages were sent successfully
+        # Update .last_commit once report_commits succeeds. If log file messages fail to send
+        # we'll pick them up the next time there's a commit, although not on the next check().
         self.last_commit = new_commits[0]
-        self.current_shas['whatsnew.txt'] = new_whatsnew_sha
-        os.rename(save_path('whatsnew.txt.new'), save_path('whatsnew.txt'))
+
+        for logname in self.watched_logs:
+            # (Optional) Check whether the file actually changed before downloading it
+            new_sha = self.repo.last_sha_touching(self.branch, logname)
+            if new_sha == self.current_shas[logname]:
+                continue
+
+            # Download specifying the exact sha to download rather than just the branch, as otherwise
+            # github seems to cache it rather than providing actual latest.
+            self.download_revision(new_sha, logname, logname + '.new')
+
+            changes = ohrlogs.compare_release_notes(save_path(logname), save_path(logname + '.new'))
+            if changes:
+                await self.message(f"{logname} changes:\n```{changes}```", ctx)
+            else:
+                if verbose:
+                    print(" No text changes to", logname)
+
+            # Update state once the update is posted successfully
+            self.current_shas[logname] = new_sha
+            os.rename(save_path(logname + '.new'), save_path(logname))
+
+        if verbose:
+            self.print_state()
         return True
 
 
@@ -218,8 +221,6 @@ async def rewind_commits(ctx, n: int):
     print("!rewind_commits", n)
     update_checker.rewind_commits(n)
     await ctx.send("Rewound.", silent = True)
-    if verbose:
-        update_checker.print_state()
 
 @bot.command()
 @commands.cooldown(1, COOLDOWN_TIME, commands.BucketType.user)
