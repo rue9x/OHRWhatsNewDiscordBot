@@ -12,10 +12,8 @@ verbose = False
 
 github.verbose = verbose
 
-SAVE_FOLDER = os.getcwd()
-
 # Globals are loaded from config.
-with open (os.path.join(SAVE_FOLDER,"config.json"),'r') as fi:
+with open("config.json", 'r') as fi:
     CONFIG = json.load(fi)
 APP_TOKEN = CONFIG["APP_TOKEN"]
 RELEASE_WHATSNEW_URL = CONFIG["RELEASE_WHATSNEW_URL"]
@@ -27,10 +25,11 @@ MINUTES_PER_CHECK = CONFIG["MINUTES_PER_CHECK"]
 COOLDOWN_TIME = CONFIG["COOLDOWN_TIME"]
 MSG_SIZE = CONFIG["MSG_SIZE"]
 EMBED_SIZE = CONFIG["EMBED_SIZE"]  # Max size of an embed description. Documented as 4096, API error says 6000
+STATE_DIR = CONFIG["STATE_DIR"]
 
-def save_path(filename):
-    return os.path.join(SAVE_FOLDER, filename)
-
+if not os.path.isdir(STATE_DIR):
+    os.mkdir(STATE_DIR)
+os.chdir(STATE_DIR)
 
 class UpdateChecker:
     """Checks for and reports new commits (not finished) or changes to watched_logs in GITHUB_REPO.
@@ -56,7 +55,7 @@ class UpdateChecker:
         if not dest_path:
             dest_path = repo_path
         url = self.repo.blob_url(ref, repo_path)
-        ohrlogs.save_from_url(url, save_path(dest_path))
+        ohrlogs.save_from_url(url, dest_path)
 
     async def message(self, msg, ctx = None, **kwargs):
         print(msg)
@@ -130,7 +129,7 @@ class UpdateChecker:
             # github seems to cache it rather than providing actual latest.
             self.download_revision(new_sha, logname, logname + '.new')
 
-            changes = ohrlogs.compare_release_notes(save_path(logname), save_path(logname + '.new'))
+            changes = ohrlogs.compare_release_notes(logname, logname + '.new')
             if changes:
                 await self.message(f"{logname} changes:\n```{changes}```", ctx)
             else:
@@ -139,7 +138,7 @@ class UpdateChecker:
 
             # Update state once the update is posted successfully
             self.current_shas[logname] = new_sha
-            os.rename(save_path(logname + '.new'), save_path(logname))
+            os.rename(logname + '.new', logname)
 
         if verbose:
             self.print_state()
@@ -230,7 +229,7 @@ async def whatsnew(ctx):
         return
 
     # Just use the most recently downloaded whatsnew.txt
-    output_message = ohrlogs.compare_urls(RELEASE_WHATSNEW_URL, save_path('whatsnew.txt'), newest_only = True)
+    output_message = ohrlogs.compare_urls(RELEASE_WHATSNEW_URL, 'whatsnew.txt', newest_only = True)
 
     # If the output is long split into multiple messages
     for chunk in chunk_message(output_message):
