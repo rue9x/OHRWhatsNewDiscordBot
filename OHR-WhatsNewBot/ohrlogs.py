@@ -8,16 +8,17 @@ import configparser
 import difflib
 
 def parse_items(lines, unwrap = True):
-    """Combine lines into items, which either header lines or blocks starting with *.
+    """Combine lines into items, which are either header lines or blocks starting with *.
     If unwrap, returns a list of long lines (ending in newlines if lines does),
     otherwise returns a list of strings containing multiple newlines."""
     items = []
+    blankline = True
     for line in lines:
         stripped = line.strip()
         if stripped == '':
+            blankline = True
             continue
-        # "Highlights" is a special case missing a '*'
-        if not line.startswith(' ') or stripped.startswith('*') or stripped == 'Highlights:':
+        if blankline or stripped.startswith('*'):
             items.append(line)
         else:
             if unwrap:
@@ -27,6 +28,7 @@ def parse_items(lines, unwrap = True):
                 items[-1] += line.lstrip()
             else:
                 items[-1] = items[-1] + line
+        blankline = False
     return items
 
 def pairwise(iterable):
@@ -39,11 +41,14 @@ def pairwise(iterable):
         yield prev, item
         prev = item
 
-def compare_release_notes(old_notes, new_notes):
+def compare_release_notes(old_notes, new_notes, newest_only = False) -> str:
     '''
-    Takes old_notes and new_notes, paths to two versions of whatsnew.txt.
-    Returns (as a string) only those lines in new_notes for the newest release
-    that aren't in old_notes, or which are section headers.
+    Takes old_notes and new_notes, paths to two versions of whatsnew.txt
+    (can also be used with IMPORTANT-nightly.txt).
+    Returns a diff of added/removed lines, plus section headers above a changed line.
+    Also unwraps lines, removes blanks, and readds blanks before sections.
+
+    newest_only: Only show changes to the latest release
     '''
     # Read the contents of the old release notes
     with open(old_notes, 'r') as old_file:
@@ -86,7 +91,7 @@ def compare_release_notes(old_notes, new_notes):
             header_stack.pop()
 
         edit_item = ditem
-        if "***" in edit_item: # Add some extra formatting for new sections (which start with ***)
+        if indent == 0 or "***" in edit_item: # Add some extra formatting for new sections (which start with ***)
             edit_item = "\n" + edit_item
 
         if tag in "+-?":
@@ -101,10 +106,10 @@ def compare_release_notes(old_notes, new_notes):
             header_stack.append(edit_item)
 
         # Show only the first release in the file (the new/upcoming update)
-        #if re.match(release_pattern, item):
-        #    releases += 1
-        #    if releases > 1:
-        #        return retval
+        if newest_only and re.match(release_pattern, item):
+           releases += 1
+           if releases > 1:
+               return retval
 
         # Ignore items which are moved unchanged
         if tag == '+' and ('- ' + item) in diffitems_set:
@@ -118,7 +123,7 @@ def compare_release_notes(old_notes, new_notes):
         if tag in "-+?":
             retval += edit_item
 
-    return retval
+    return retval.lstrip('\n')
 
 def save_from_url(url, file_path, cache = False):
     ''' 

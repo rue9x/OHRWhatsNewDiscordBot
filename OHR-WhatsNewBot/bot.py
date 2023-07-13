@@ -228,7 +228,8 @@ async def whatsnew(ctx):
         await ctx.send("This command is not allowed in this channel.")
         return
 
-    output_message = ohrlogs.compare_urls(RELEASE_WHATSNEW_URL, NIGHTLY_WHATSNEW_URL)
+    # Just use the most recently downloaded whatsnew.txt
+    output_message = ohrlogs.compare_urls(RELEASE_WHATSNEW_URL, save_path('whatsnew.txt'), newest_only = True)
 
     # If the output is long split into multiple messages
     for chunk in chunk_message(output_message):
