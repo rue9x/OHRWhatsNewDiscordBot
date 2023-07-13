@@ -29,8 +29,12 @@ class GitCommit:
     headline = None  # First line of the message, trimmed
     date = None      # Committer time, in seconds
 
-    def __init__(self, commit: dict):
+    def __init__(self, commit: dict, _load_from_dict: dict = None):
         "Parses one item from a JSON list of commits from GitHub"
+        if _load_from_dict:
+            self.__dict__.update(_load_from_dict)
+            return
+
         self.sha = commit['sha']
 
         self.message = commit['commit']['message']

@@ -38,17 +38,48 @@ class UpdateChecker:
     watched_logs = ['whatsnew.txt', 'IMPORTANT-nightly.txt']
 
     def __init__(self, bot):
+        self.channel = bot.get_channel(UPDATES_CHANNEL)
         self.repo = github.GitHubRepo(GITHUB_REPO)
         self.branch = GITHUB_BRANCH
-        self.last_commit = self.repo.last_commits(self.branch, 1)[0]
-        self.current_shas = {}
-        for logname in self.watched_logs:
-            self.current_shas[logname] = self.repo.last_sha_touching(self.branch, logname)
-            self.download_revision(self.current_shas[logname], logname)
+
+        # Attempt to restore saved state
+        state = None
+        if os.path.isfile('state.json'):
+            with open('state.json', 'r') as fi:
+                state = json.load(fi)
+        if state and state['repo'] == self.repo.user_repo and state['branch'] == self.branch:
+            print("Loading state.json")
+            self.last_commit = github.GitCommit(None, _load_from_dict = state['last_commit'])
+            self.log_shas = state['log_shas']
+            # The log files will already be downloaded
+        else:
+            print("No/invalid state.json, initialising state")
+            self.last_commit = self.repo.last_commits(self.branch, 1)[0]
+            self.log_shas = {}
+            for logname in self.watched_logs:
+                self.log_shas[logname] = self.repo.last_sha_touching(self.branch, logname)
+                self.download_revision(self.log_shas[logname], logname)
+            self.save_state()
+
         if verbose:
             self.print_state()
 
-        self.channel = bot.get_channel(UPDATES_CHANNEL)
+    def save_state(self):
+        with open('state.json', 'w') as fo:
+            fo.write(json.dumps({
+                'repo': self.repo.user_repo,
+                'branch': self.branch,
+                'last_commit': vars(self.last_commit),
+                'log_shas': self.log_shas,
+            }, indent = '\t'))
+
+    def print_state(self):
+        "Log internal state, for debugging."
+        print("State:")
+        print(" last_commit:", self.last_commit.sha)
+        print(" ", self.last_commit)
+        for logname in self.watched_logs:
+            print(f" {logname} commit:", self.log_shas[logname])
 
     def download_revision(self, ref, repo_path, dest_path = None):
         "Download a file from git at a certain ref (a sha, branch or tag)"
@@ -79,22 +110,15 @@ class UpdateChecker:
             embed.description = chunk
             await self.message("", ctx, embed = embed)
 
-    def print_state(self):
-        "Log internal state, for debugging."
-        print("Status:")
-        print(" last_commit:", self.last_commit.sha)
-        print(" ", self.last_commit)
-        for logname in self.watched_logs:
-            print(f" {logname} commit:", self.current_shas[logname])
-
     def rewind_commits(self, n):
         "Rewind the state to n commits before HEAD. For debugging."
         self.last_commit = self.repo.last_commits(self.branch, n + 1)[-1]
         # Although this commit didn't necessarily touch the log files, this
         # has the effect of replaying any changes to them since.
         for logname in self.watched_logs:
-            self.current_shas[logname] = self.last_commit.sha
+            self.log_shas[logname] = self.last_commit.sha
             self.download_revision(self.last_commit.sha, logname)
+        self.save_state()
 
     @tasks.loop(minutes = MINUTES_PER_CHECK)
     async def check(self, ctx = None):
@@ -118,11 +142,12 @@ class UpdateChecker:
         # Update .last_commit once report_commits succeeds. If log file messages fail to send
         # we'll pick them up the next time there's a commit, although not on the next check().
         self.last_commit = new_commits[0]
+        self.save_state()
 
         for logname in self.watched_logs:
             # (Optional) Check whether the file actually changed before downloading it
             new_sha = self.repo.last_sha_touching(self.branch, logname)
-            if new_sha == self.current_shas[logname]:
+            if new_sha == self.log_shas[logname]:
                 continue
 
             # Download specifying the exact sha to download rather than just the branch, as otherwise
@@ -137,8 +162,9 @@ class UpdateChecker:
                     print(" No text changes to", logname)
 
             # Update state once the update is posted successfully
-            self.current_shas[logname] = new_sha
+            self.log_shas[logname] = new_sha
             os.rename(logname + '.new', logname)
+            self.save_state()
 
         if verbose:
             self.print_state()
@@ -162,7 +188,7 @@ async def on_ready():
     else:
         global update_checker
         update_checker = UpdateChecker(bot)
-        #update_checker.check.start()
+        update_checker.check.start()
     # Be cute
     await bot.change_presence(activity = discord.Activity(type = discord.ActivityType.watching, name = "OHRRPGCE changes"))
 
