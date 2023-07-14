@@ -23,6 +23,7 @@ GITHUB_BRANCH = CONFIG["GITHUB_BRANCH"]
 UPDATES_CHANNEL = CONFIG["UPDATES_CHANNEL"]
 MINUTES_PER_CHECK = CONFIG["MINUTES_PER_CHECK"]
 COOLDOWN_TIME = CONFIG["COOLDOWN_TIME"]
+WHATSNEW_COOLDOWN_TIME = CONFIG["WHATSNEW_COOLDOWN_TIME"]
 MSG_SIZE = CONFIG["MSG_SIZE"]
 EMBED_SIZE = CONFIG["EMBED_SIZE"]  # Max size of an embed description. Documented as 4096, API error says 6000
 STATE_DIR = CONFIG["STATE_DIR"]
@@ -206,7 +207,10 @@ def chunk_message(message, chunk_size = MSG_SIZE):
         message = message[break_index:]
 
 @bot.command()
+@commands.max_concurrency(1)
+@commands.cooldown(1, COOLDOWN_TIME, commands.BucketType.guild)
 async def check(ctx):
+    "Immediately check for new git commits and updates to whatsnew.txt & IMPORTANT-nightly.txt"
     print("!check")
     if ctx.channel.id not in allowed_channels:
         await ctx.send("This command is not allowed in this channel.")
@@ -216,11 +220,14 @@ async def check(ctx):
         await ctx.send("No changes.", silent = True)
 
 @bot.command(aliases = ['nightly', 'builds'])
+@commands.max_concurrency(1)
+@commands.cooldown(1, COOLDOWN_TIME, commands.BucketType.guild)
 async def nightlies(ctx):
+    "(aka 'builds') Display status of and links to nightly builds."
     print("!nightlies")
     view = discord.ui.View()
 
-    builds  = ohrlogs.get_builds(NIGHTLY_CHECK_URL)
+    builds = ohrlogs.get_builds(NIGHTLY_CHECK_URL)
     nightly_dir = posixpath.split(NIGHTLY_CHECK_URL)[0]
     max_rev = max(build.svn_rev for build in builds)
     min_rev = min(build.svn_rev for build in builds)
@@ -242,17 +249,19 @@ async def nightlies(ctx):
 
 @bot.command()
 async def rewind_commits(ctx, n: int):
-    "For testing."
+    "(For testing.) Set the bot state to n commits before HEAD."
     print("!rewind_commits", n)
     update_checker.rewind_commits(n)
     await ctx.send("Rewound.", silent = True)
 
 @bot.command()
-@commands.cooldown(1, COOLDOWN_TIME, commands.BucketType.user)
+@commands.cooldown(1, WHATSNEW_COOLDOWN_TIME, commands.BucketType.guild)
 async def whatsnew(ctx):
+    "Display whatsnew.txt for current nightlies. Might be pretty long!"
     if ctx.channel.id not in allowed_channels:
         await ctx.send("This command is not allowed in this channel.")
         return
+    print("!whatsnew")
 
     # Just use the most recently downloaded whatsnew.txt
     output_message = ohrlogs.compare_urls(RELEASE_WHATSNEW_URL, 'whatsnew.txt', newest_only = True)
@@ -267,6 +276,10 @@ async def whatsnew(ctx):
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
         await ctx.send(f'This command is on cooldown, you can use it in {int(error.retry_after)} seconds.')
+        return
+    if isinstance(error, commands.errors.MaxConcurrencyReached):
+        print("Ignoring MaxConcurrencyReached error")
+        return
 
     print("----\n on_command_error:")
     traceback.print_exception(type(error), error, error.__traceback__)
