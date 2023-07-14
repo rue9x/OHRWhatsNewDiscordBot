@@ -1,6 +1,6 @@
 # OHRWhatsNewDiscordBot
 
-A Discord bot for displaying whatsnew.txt for the OHRRPGCE
+A Discord bot that watches for and reports new git commits, changelog updates (whatsnew.txt and IMPORTANT-nightly.txt) and nightly builds for the OHRRPGCE.
 
 # Installation:
 
@@ -8,34 +8,33 @@ A Discord bot for displaying whatsnew.txt for the OHRRPGCE
 
 2. Install module requirements: pip install -r requirements.txt
 
-3. Make a copy of example_config.json, name it config.json and add your APP_TOKEN and ALLOWED_CHANNELS.
+3. Make a copy of example_config.json, name it config.json and add your APP_TOKEN, UPDATES_CHANNEL and ALLOWED_CHANNELS (where ! commands can be used).
 
 You can get your APP_TOKEN at http://developer.discord.com and the channel IDs can be obtained by
 right clicking on a channel on discord and selecting "Copy Channel ID".
 
 # Usage 
-1. Launch with: py bot.py -- Success looks like this:
+1. Launch with: python3 bot.py -- Success looks like this:
 
+```
 discord.client logging in using static token
-
 discord.gateway Shard ID None has connected to Gateway (Session ID: cdcac418e852ee7fc167f2cb3ab77635).
-
 Logged in as OHR Whats New Bot
-
 Started OHR WhatsNew Bot
+------
+No/invalid state.json, initialising state
+```
 
-2. In one of the discord channels the bot has joined, use !whatsnew.
+The bot will then immediately perform its first check.
 
-3. Adjust the COOLDOWN_TIME to change how often a user can use the command. Will require a relaunch.
+2. In any of the allowed channels, users can use `!help`, `!check` and other commands.
 
-4. Ctrl+C to kill the bot.
+3. You can use the `!rewind_commits <n>` followed command followed by `!check` to test the bot.
+
+4. Or just do nothing and the bot will post updates once a day, if there are any. It will take up to MINUTES_PER_CHECK after nightly builds are built before it posts any git commits (and log changes) made that day. If MAX_CHECK_DELAY_HOURS (26) pass without new nightly builds, it'll go ahead and post git commits regardless.
+
+5. Ctrl+C to kill the bot. It'll read `state/state.json` and resume where it left off when restarted, without missing anything.
 
 # Known issues
 
-1. (watching) Message truncating is odd.
-
-2. No error control (connection errors, etc)
-
-3. No command to kill bot.
-
-4. Cooldown effects the whole bot, not just the user/channel.
+None.
