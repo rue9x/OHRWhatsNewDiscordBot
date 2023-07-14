@@ -1,5 +1,3 @@
-import discord
-from discord.ext import commands, tasks
 import os
 import posixpath
 import time
@@ -7,6 +5,8 @@ import json
 import traceback
 import ohrlogs
 import github
+import discord
+from discord.ext import commands, tasks
 
 # Enable verbose logging to console
 verbose = False
@@ -269,8 +269,7 @@ class UpdateChecker:
 intents = discord.Intents.all()
 intents.typing = False  # Disable typing events to reduce unnecessary event handling
 allowed_channels = list(CONFIG["ALLOWED_CHANNELS"])  # Replace with the desired channel IDs
-bot = commands.Bot(command_prefix="!", intents=intents)
-
+bot = commands.Bot(command_prefix = "!", intents = intents, help_command = None)
 
 @bot.event
 async def on_ready():
@@ -300,6 +299,16 @@ def chunk_message(message, chunk_size = MSG_SIZE, formatting = "{}"):
         message = message[break_index:]
 
 @bot.command()
+async def help(ctx):
+    await ctx.send(f"""Available bot commands:
+```
+  !check                {check.help}
+  !nightlies / !builds  {nightlies.help}
+  !whatsnew             {whatsnew.help}
+  !commit               {commit.help}
+```""")
+
+@bot.command()
 @commands.max_concurrency(1)
 @commands.cooldown(1, COOLDOWN_TIME, commands.BucketType.guild)
 async def check(ctx, force: bool = True):
@@ -320,12 +329,12 @@ async def nightlies(ctx, minimal: bool = False):
     print("!nightlies")
     await update_checker.show_nightlies(ctx, minimal = minimal)
 
-@bot.command()
-async def rewind_commits(ctx, n: int):
+@bot.command(hidden = True)
+async def rewind_commits(ctx, num: int):
     "(For testing.) Set the bot state to n commits before HEAD."
-    print("!rewind_commits", n)
-    update_checker.rewind_commits(n)
-    await ctx.send("Rewound.", silent = True)
+    print("!rewind_commits", num)
+    update_checker.rewind_commits(num)
+    await ctx.send("Rewound.")
 
 @bot.command()
 @commands.cooldown(1, WHATSNEW_COOLDOWN_TIME, commands.BucketType.guild)
@@ -356,14 +365,22 @@ async def whatsnew(ctx):
 
 @bot.event
 async def on_command_error(ctx, error):
+    print("on_command_error:", error)
     if isinstance(error, commands.CommandOnCooldown):
         await ctx.send(f'This command is on cooldown, you can use it in {int(error.retry_after)} seconds.')
         return
     if isinstance(error, commands.errors.MaxConcurrencyReached):
-        print("Ignoring MaxConcurrencyReached error")
+        return  # Ignore
+    if isinstance(error, commands.errors.CheckFailure):
+        return  # Ignore, already printed a message
+    if isinstance(error, commands.errors.MissingRequiredArgument):
+        await ctx.send(str(error))
+        return
+    if isinstance(error, commands.errors.CommandNotFound):
+        await ctx.send("No such command.")
         return
 
-    print("----\n on_command_error:")
+    print(" --")
     traceback.print_exception(type(error), error, error.__traceback__)
     print("----")
 
