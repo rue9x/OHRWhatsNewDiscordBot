@@ -3,6 +3,7 @@ import requests
 import time
 
 verbose = True
+HEADLINE_LENGTH = 120
 
 
 def format_date(t) -> str:
@@ -44,8 +45,8 @@ class GitCommit:
             del msg_lines[-1]
             self.message = '\n'.join(msg_lines).strip()
         self.headline = msg_lines[0]
-        if len(self.headline) > 80:
-            self.headline = self.headline[:80] + '...'
+        if len(self.headline) > HEADLINE_LENGTH:
+            self.headline = self.headline[:HEADLINE_LENGTH] + '...'
 
         self.author = commit['commit']['author']['name']
         self.date = parse_date(commit['commit']['committer']['date'])

@@ -30,6 +30,7 @@ COOLDOWN_TIME = CONFIG["COOLDOWN_TIME"]
 WHATSNEW_COOLDOWN_TIME = CONFIG["WHATSNEW_COOLDOWN_TIME"]
 MSG_SIZE = CONFIG["MSG_SIZE"]
 EMBED_SIZE = CONFIG["EMBED_SIZE"]  # Max size of an embed description. Documented as 4096, API error says 6000
+CHUNKS_LIMIT = CONFIG["CHUNKS_LIMIT"]  # Max number of whatsnew.txt chunks
 STATE_DIR = CONFIG["STATE_DIR"]
 
 if not os.path.isdir(STATE_DIR):
@@ -285,7 +286,7 @@ async def on_ready():
     # Be cute
     await bot.change_presence(activity = discord.Activity(type = discord.ActivityType.watching, name = "OHRRPGCE changes"))
 
-def chunk_message(message, chunk_size = MSG_SIZE):
+def chunk_message(message, chunk_size = MSG_SIZE, formatting = "{}"):
     "Split a string at line breaks into chunks at most chunk_size in length."
     while len(message):
         # Split off a chunk at the last newline before chunk_size
@@ -295,7 +296,7 @@ def chunk_message(message, chunk_size = MSG_SIZE):
                 break_index = chunk_size
         else:
             break_index = len(message)
-        yield message[:break_index]
+        yield formatting.format(message[:break_index])
         message = message[break_index:]
 
 @bot.command()
@@ -339,17 +340,19 @@ async def whatsnew(ctx):
     ohrlogs.save_from_url(RELEASE_WHATSNEW_URL, 'release_whatsnew.txt')
     output_message = ohrlogs.compare_release_notes('release_whatsnew.txt', 'whatsnew.txt', newest_only = True, diff = False)
 
-    # If the output is long split into multiple messages
-    chunks = list(chunk_message(output_message))
+    # If the output is long split into multiple messages. Format each chunk as a code block
+    chunks = list(chunk_message(output_message, formatting = "```{}```"))
+    if len(chunks) > CHUNKS_LIMIT:
+        chunks = chunks[:CHUNKS_LIMIT]
+        chunks.append("(snip) ...Too much is new! View the whole file here:")
+
     for chunk in chunks:
-        # Formatted in code blocks
-        formatted_chunk = f"```{chunk}```"
         view = None
         if chunk == chunks[-1]:
                 view = discord.ui.View()
                 view.add_item(discord.ui.Button(label = "Stable whatsnew.txt", url = RELEASE_WHATSNEW_URL))
                 view.add_item(discord.ui.Button(label = "Nightly whatsnew.txt", url = update_checker.file_url('whatsnew.txt'), emoji = '🛠️'))
-        await ctx.send(formatted_chunk, view = view)
+        await ctx.send(chunk, view = view, silent = True)
 
 @bot.event
 async def on_command_error(ctx, error):
