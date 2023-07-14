@@ -21,6 +21,7 @@ RELEASE_WHATSNEW_URL = CONFIG["RELEASE_WHATSNEW_URL"]
 NIGHTLY_CHECK_URL = CONFIG["NIGHTLY_CHECK_URL"]
 GITHUB_REPO = CONFIG["GITHUB_REPO"]
 GITHUB_BRANCH = CONFIG["GITHUB_BRANCH"]
+ALLOWED_CHANNELS = CONFIG["ALLOWED_CHANNELS"]  # Channel IDs where commands can be used
 UPDATES_CHANNEL = CONFIG["UPDATES_CHANNEL"]
 # How frequently we check for new nightlies. New nightlies triggers a check for git commits and log changes
 MINUTES_PER_CHECK = CONFIG["MINUTES_PER_CHECK"]
@@ -268,7 +269,6 @@ class UpdateChecker:
 # Discord setup:
 intents = discord.Intents.all()
 intents.typing = False  # Disable typing events to reduce unnecessary event handling
-allowed_channels = list(CONFIG["ALLOWED_CHANNELS"])  # Replace with the desired channel IDs
 bot = commands.Bot(command_prefix = "!", intents = intents, help_command = None)
 
 @bot.event
@@ -298,7 +298,14 @@ def chunk_message(message, chunk_size = MSG_SIZE, formatting = "{}"):
         yield formatting.format(message[:break_index])
         message = message[break_index:]
 
+async def allowed_channel(ctx):
+    if ctx.channel.id not in ALLOWED_CHANNELS:
+        #await ctx.send("This command is not allowed in this channel.")
+        return False
+    return True
+
 @bot.command()
+@commands.check(allowed_channel)
 async def help(ctx):
     await ctx.send(f"""Available bot commands:
 ```
@@ -309,19 +316,18 @@ async def help(ctx):
 ```""")
 
 @bot.command()
+@commands.check(allowed_channel)
 @commands.max_concurrency(1)
 @commands.cooldown(1, COOLDOWN_TIME, commands.BucketType.guild)
 async def check(ctx, force: bool = True):
     "Check for new git/svn commits and changes to whatsnew.txt & IMPORTANT-nightly.txt"
     print("!check", force)
-    if ctx.channel.id not in allowed_channels:
-        await ctx.send("This command is not allowed in this channel.")
-        return
     if not await update_checker.check(ctx, force):
         await ctx.send("No changes.")
 
 
 @bot.command(aliases = ['nightly', 'builds'])
+@commands.check(allowed_channel)
 @commands.max_concurrency(1)
 @commands.cooldown(1, COOLDOWN_TIME, commands.BucketType.guild)
 async def nightlies(ctx, minimal: bool = False):
@@ -330,6 +336,7 @@ async def nightlies(ctx, minimal: bool = False):
     await update_checker.show_nightlies(ctx, minimal = minimal)
 
 @bot.command(hidden = True)
+@commands.check(allowed_channel)
 async def rewind_commits(ctx, num: int):
     "(For testing.) Set the bot state to n commits before HEAD."
     print("!rewind_commits", num)
@@ -337,12 +344,10 @@ async def rewind_commits(ctx, num: int):
     await ctx.send("Rewound.")
 
 @bot.command()
+@commands.check(allowed_channel)
 @commands.cooldown(1, WHATSNEW_COOLDOWN_TIME, commands.BucketType.guild)
 async def whatsnew(ctx):
     "Display whatsnew.txt for current nightlies. Might be pretty long!"
-    if ctx.channel.id not in allowed_channels:
-        await ctx.send("This command is not allowed in this channel.")
-        return
     print("!whatsnew")
 
     # Don't cache stable whatsnew.txt but just use the most recently downloaded whatsnew.txt
