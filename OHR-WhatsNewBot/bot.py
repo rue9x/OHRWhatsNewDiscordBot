@@ -93,7 +93,7 @@ class UpdateChecker:
         ohrlogs.save_from_url(url, dest_path)
 
     async def message(self, msg, ctx = None, **kwargs):
-        print(msg)
+        print("message:", msg)
         if ctx:
             channel = ctx
         else:
@@ -104,8 +104,8 @@ class UpdateChecker:
         "Send a message listing 'commits' (as an embed)"
         msg = '\n'.join(cmt.short_format(hyperlink = True) for cmt in commits)
         first = True
+        print(msg)
         for chunk in chunk_message(msg, EMBED_SIZE):
-            print(msg)
             embed = discord.Embed()
             if first:
                 embed.title = "New commits to " + GITHUB_REPO + " " + self.branch
@@ -174,6 +174,41 @@ class UpdateChecker:
             self.print_state()
         return True
 
+    async def show_nightlies(self, ctx = None, msg_prefix = "", minimal = False):
+        "Send a message with links to nightlies. Doesn't change state"
+
+        builds = ohrlogs.get_builds(NIGHTLY_CHECK_URL)
+        nightly_dir = posixpath.split(NIGHTLY_CHECK_URL)[0]
+        max_rev = max(build.svn_rev for build in builds)
+        # Also warn if out of date with the last commit (or whatsnew.txt update) we showed
+        max_rev = max(max_rev, self.last_commit.svn_rev)
+        min_rev = min(build.svn_rev for build in builds)
+        max_date = max(build.build_date for build in builds)
+
+        view = discord.ui.View()
+        for build in builds:
+            if minimal and not build.important:
+                continue
+            if build.svn_rev < max_rev:
+                emoji = "💤"  # Indicate it's out of date
+            else:
+                emoji = None
+            but = discord.ui.Button(label = build.label(), url = build.url, emoji = emoji)
+            view.add_item(but)
+
+        but = discord.ui.Button(label = "See all", url = nightly_dir, emoji = "📁")
+        view.add_item(but)
+
+        msg = msg_prefix + "\nNightly build downloads"
+        if not minimal:
+            msg += " and commit built, latest built " + str(max_date)
+        if max_rev > min_rev:
+            msg += " (some are behind)"
+        if minimal:
+            msg += "; `!nightlies` shows more"
+        await self.message(msg, ctx, view = view)
+
+
 
 # Discord setup:
 intents = discord.Intents.all()
@@ -225,30 +260,10 @@ async def check(ctx):
 @bot.command(aliases = ['nightly', 'builds'])
 @commands.max_concurrency(1)
 @commands.cooldown(1, COOLDOWN_TIME, commands.BucketType.guild)
-async def nightlies(ctx):
-    "(aka 'builds') Display status of and links to nightly builds."
+async def nightlies(ctx, minimal: bool = False):
+    "Display status of and links to nightly builds."
     print("!nightlies")
-    view = discord.ui.View()
-
-    builds = ohrlogs.get_builds(NIGHTLY_CHECK_URL)
-    nightly_dir = posixpath.split(NIGHTLY_CHECK_URL)[0]
-    max_rev = max(build.svn_rev for build in builds)
-    min_rev = min(build.svn_rev for build in builds)
-
-    for build in builds:
-        print(build)
-        if build.svn_rev < max_rev:
-            emoji = "💤"  # Indicate it's out of date
-        else:
-            emoji = None
-        but = discord.ui.Button(label = build.label(), url = build.url, emoji = emoji)
-        view.add_item(but)
-
-    but = discord.ui.Button(label = "See all", url = nightly_dir, emoji = "📁")
-    view.add_item(but)
-
-    note = ' (some are out of date)' if max_rev > min_rev else ''
-    await ctx.send(f'🛠️ Nightly build downloads and commit built{note}:', view = view, silent = True)
+    await update_checker.show_nightlies(ctx, minimal = minimal)
 
 @bot.command()
 async def rewind_commits(ctx, n: int):
