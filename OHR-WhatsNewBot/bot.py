@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands, tasks
 import os
 import posixpath
+import time
 import json
 import traceback
 import ohrlogs
@@ -21,7 +22,10 @@ NIGHTLY_CHECK_URL = CONFIG["NIGHTLY_CHECK_URL"]
 GITHUB_REPO = CONFIG["GITHUB_REPO"]
 GITHUB_BRANCH = CONFIG["GITHUB_BRANCH"]
 UPDATES_CHANNEL = CONFIG["UPDATES_CHANNEL"]
+# How frequently we check for new nightlies. New nightlies triggers a check for git commits and log changes
 MINUTES_PER_CHECK = CONFIG["MINUTES_PER_CHECK"]
+# If it's been this long without new nightlies then force a check for git commits and log changes
+MAX_CHECK_DELAY_HOURS = CONFIG["MAX_CHECK_DELAY_HOURS"]
 COOLDOWN_TIME = CONFIG["COOLDOWN_TIME"]
 WHATSNEW_COOLDOWN_TIME = CONFIG["WHATSNEW_COOLDOWN_TIME"]
 MSG_SIZE = CONFIG["MSG_SIZE"]
@@ -50,11 +54,13 @@ class UpdateChecker:
                 state = json.load(fi)
         if state and state['repo'] == self.repo.user_repo and state['branch'] == self.branch:
             print("Loading state.json")
+            self.last_full_check = state['last_full_check']
             self.last_commit = github.GitCommit(None, _load_from_dict = state['last_commit'])
             self.log_shas = state['log_shas']
             # The log files will already be downloaded
         else:
             print("No/invalid state.json, initialising state")
+            self.last_full_check = time.time()
             self.last_commit = self.repo.last_commits(self.branch, 1)[0]
             self.log_shas = {}
             for logname in self.watched_logs:
@@ -72,6 +78,7 @@ class UpdateChecker:
                 'branch': self.branch,
                 'last_commit': vars(self.last_commit),
                 'log_shas': self.log_shas,
+                'last_full_check': self.last_full_check,
             }, indent = '\t'))
 
     def print_state(self):
@@ -81,6 +88,8 @@ class UpdateChecker:
         print(" ", self.last_commit)
         for logname in self.watched_logs:
             print(f" {logname} commit:", self.log_shas[logname])
+        timeout = (self.last_full_check + MAX_CHECK_DELAY_HOURS * 3600 - time.time()) / 3600
+        print(" last_full_check:", time.ctime(self.last_full_check), " Builds time out in %.1f hours" % timeout)
 
     def file_url(self, repo_path):
         return self.repo.blob_url(self.branch, repo_path)
@@ -125,12 +134,47 @@ class UpdateChecker:
         self.save_state()
 
     @tasks.loop(minutes = MINUTES_PER_CHECK)
-    async def check(self, ctx = None):
-        """Check for new commits and for changes to IMPORTANT-nightly.txt & whatsnew.txt.
+    async def check(self, ctx = None, force = False):
+        """If there have been new builds, or it's been MAX_CHECK_DELAY_HOURS, or force == True,
+        then check for and report new commits and changes to IMPORTANT-nightly.txt & whatsnew.txt.
         Returns True if any message was sent.
         ctx:  channel or (command) Context to send to"""
         if verbose:
-            print("UpdateChecker.check")
+            print(f"** UpdateChecker.check(force={force}) ", time.asctime())
+
+        proceed = False
+        if force:
+            proceed = True
+        elif time.time() > self.last_full_check + MAX_CHECK_DELAY_HOURS * 3600:
+            if verbose:
+                print("MAX_CHECK_DELAY_HOURS exceeded")
+            proceed = True
+
+        nightlies_changed = ohrlogs.url_changed(NIGHTLY_CHECK_URL, 'nightly-check.ini')
+        if nightlies_changed:
+            proceed = True
+        if verbose:
+            print("nightlies_changed =", nightlies_changed)
+
+        if proceed == False:
+            return False
+
+        self.last_full_check = time.time()
+
+        logs_changed = False
+        if await self.check_git(ctx):
+            logs_changed = await self.check_logs(ctx)  # Also shows_nightlies if true
+        if verbose:
+            print("logs_changed =", logs_changed)
+
+        if verbose:
+            self.print_state()
+
+        return logs_changed
+
+    async def check_git(self, ctx = None):
+        """Check for new commits. Returns True if any message was sent.
+        ctx:  channel or (command) Context to send to"""
 
         new_repo_sha = self.repo.current_sha(self.branch)
         if new_repo_sha == self.last_commit.sha:
@@ -147,6 +191,13 @@ class UpdateChecker:
         # we'll pick them up the next time there's a commit, although not on the next check().
         self.last_commit = new_commits[0]
         self.save_state()
+        return True
+
+    async def check_logs(self, ctx = None):
+        """Check for changes to logs. Returns True if any message was sent.
+        Also, will show_nightlies if there are any log changes.
+        ctx:  channel or (command) Context to send to"""
+        ret = False
 
         for logname in self.watched_logs:
             # (Optional) Check whether the file actually changed before downloading it
@@ -160,7 +211,12 @@ class UpdateChecker:
 
             changes = ohrlogs.compare_release_notes(logname, logname + '.new')
             if changes:
-                await self.message(f"{logname} changes:\n```{changes}```", ctx)
+                msg = f"{logname} changes (as of {self.last_commit.rev()}):\n```{changes}```"
+                if ret:  # Already showed nightlies
+                    await self.message(msg, ctx)
+                else:
+                    await self.show_nightlies(ctx, msg, minimal = True)
+                ret = True
             else:
                 if verbose:
                     print(" No text changes to", logname)
@@ -170,9 +226,7 @@ class UpdateChecker:
             os.rename(logname + '.new', logname)
             self.save_state()
 
-        if verbose:
-            self.print_state()
-        return True
+        return ret
 
     async def show_nightlies(self, ctx = None, msg_prefix = "", minimal = False):
         "Send a message with links to nightlies. Doesn't change state"
@@ -247,15 +301,15 @@ def chunk_message(message, chunk_size = MSG_SIZE):
 @bot.command()
 @commands.max_concurrency(1)
 @commands.cooldown(1, COOLDOWN_TIME, commands.BucketType.guild)
-async def check(ctx):
-    "Immediately check for new git commits and updates to whatsnew.txt & IMPORTANT-nightly.txt"
-    print("!check")
+async def check(ctx, force: bool = True):
+    "Check for new git/svn commits and changes to whatsnew.txt & IMPORTANT-nightly.txt"
+    print("!check", force)
     if ctx.channel.id not in allowed_channels:
         await ctx.send("This command is not allowed in this channel.")
         return
-    ret = await update_checker.check(ctx)
-    if not ret:
-        await ctx.send("No changes.", silent = True)
+    if not await update_checker.check(ctx, force):
+        await ctx.send("No changes.")
+
 
 @bot.command(aliases = ['nightly', 'builds'])
 @commands.max_concurrency(1)

@@ -154,8 +154,8 @@ def compare_urls(oldurl, newurl):
 
     old_release_notes_file = 'release.txt'
     new_release_notes_file = 'whatsnew.txt'
-    save_from_url(oldurl, old_release_notes_file, True)
-    save_from_url(newurl, new_release_notes_file, True)
+    save_from_url(oldurl, old_release_notes_file)
+    save_from_url(newurl, new_release_notes_file)
 
     return compare_release_notes(old_release_notes_file, new_release_notes_file)
 
@@ -173,10 +173,26 @@ class EngineBuild:
     def __str__(self):
         return self.label() + " " + self.url
 
-def get_builds(nightly_check_url, path = 'nightly-check.ini'):
-    "Download nightly_check_url to path and parse it, returning a list of EngineBuilds"
+def url_changed(url, path):
+    "Download url to path, overwriting and returning whether it differs from any existing file."
+    if not os.path.isfile(path):
+        save_from_url(url, path)
+        return True
 
-    save_from_url(nightly_check_url, path, True)
+    save_from_url(url, path + '.new')
+    with open(path, 'r') as f1:
+        with open(path + '.new', 'r') as f2:
+            ret = f1.read() != f2.read()
+
+    os.rename(path + '.new', path)
+    return ret
+
+def get_builds(nightly_check_url, path = 'nightly-check.ini', cache = True):
+    """Download nightly_check_url to path if it hasn't been already and parse it,
+    returning a list of EngineBuilds.
+    Caches download by default, intended to be called after url_changed()."""
+
+    save_from_url(nightly_check_url, path, cache = cache)
 
     nightly_dir = posixpath.split(nightly_check_url)[0] + '/'
 
