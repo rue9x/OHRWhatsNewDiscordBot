@@ -41,7 +41,7 @@ def pairwise(iterable):
         yield prev, item
         prev = item
 
-def compare_release_notes(old_notes, new_notes, newest_only = False) -> str:
+def compare_release_notes(old_notes, new_notes, newest_only = False, diff = True) -> str:
     '''
     Takes old_notes and new_notes, paths to two versions of whatsnew.txt
     (can also be used with IMPORTANT-nightly.txt).
@@ -49,6 +49,7 @@ def compare_release_notes(old_notes, new_notes, newest_only = False) -> str:
     Also unwraps lines, removes blanks, and readds blanks before sections.
 
     newest_only: Only show changes to the latest release
+    diff: Display +/-/? lines not just added lines
     '''
     # Read the contents of the old release notes
     with open(old_notes, 'r') as old_file:
@@ -90,7 +91,10 @@ def compare_release_notes(old_notes, new_notes, newest_only = False) -> str:
         while header_stack and indentation(header_stack[-1]) >= indent:
             header_stack.pop()
 
-        edit_item = ditem
+        if diff:
+            edit_item = ditem
+        else:
+            edit_item = item
         if indent == 0 or "***" in edit_item: # Add some extra formatting for new sections (which start with ***)
             edit_item = "\n" + edit_item
 
@@ -117,11 +121,15 @@ def compare_release_notes(old_notes, new_notes, newest_only = False) -> str:
         if tag == '-' and ('+ ' + item) in diffitems_set:
             tag = ' '
 
-        if tag == '?':
-            edit_item = ' ' + edit_item[1:]
+        if diff:
+            if tag == '?':
+                edit_item = ' ' + edit_item[1:]
 
-        if tag in "-+?":
-            retval += edit_item
+            if tag in "-+?":
+                retval += edit_item
+        else:
+            if tag in '+':
+                retval += edit_item
 
     return retval.lstrip('\n')
 

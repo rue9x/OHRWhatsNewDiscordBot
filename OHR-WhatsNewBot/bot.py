@@ -82,6 +82,9 @@ class UpdateChecker:
         for logname in self.watched_logs:
             print(f" {logname} commit:", self.log_shas[logname])
 
+    def file_url(self, repo_path):
+        return self.repo.blob_url(self.branch, repo_path)
+
     def download_revision(self, ref, repo_path, dest_path = None):
         "Download a file from git at a certain ref (a sha, branch or tag)"
         if not dest_path:
@@ -263,14 +266,21 @@ async def whatsnew(ctx):
         return
     print("!whatsnew")
 
-    # Just use the most recently downloaded whatsnew.txt
-    output_message = ohrlogs.compare_urls(RELEASE_WHATSNEW_URL, 'whatsnew.txt', newest_only = True)
+    # Don't cache stable whatsnew.txt but just use the most recently downloaded whatsnew.txt
+    ohrlogs.save_from_url(RELEASE_WHATSNEW_URL, 'release_whatsnew.txt')
+    output_message = ohrlogs.compare_release_notes('release_whatsnew.txt', 'whatsnew.txt', newest_only = True, diff = False)
 
     # If the output is long split into multiple messages
-    for chunk in chunk_message(output_message):
+    chunks = list(chunk_message(output_message))
+    for chunk in chunks:
         # Formatted in code blocks
         formatted_chunk = f"```{chunk}```"
-        await ctx.send(formatted_chunk)
+        view = None
+        if chunk == chunks[-1]:
+                view = discord.ui.View()
+                view.add_item(discord.ui.Button(label = "Stable whatsnew.txt", url = RELEASE_WHATSNEW_URL))
+                view.add_item(discord.ui.Button(label = "Nightly whatsnew.txt", url = update_checker.file_url('whatsnew.txt'), emoji = '🛠️'))
+        await ctx.send(formatted_chunk, view = view)
 
 @bot.event
 async def on_command_error(ctx, error):
