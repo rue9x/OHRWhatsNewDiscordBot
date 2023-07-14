@@ -50,11 +50,11 @@ class UpdateChecker:
         self.branch = GITHUB_BRANCH
 
         # Attempt to restore saved state
-        state = None
+        state = {}
         if os.path.isfile('state.json'):
             with open('state.json', 'r') as fi:
                 state = json.load(fi)
-        if state and state['repo'] == self.repo.user_repo and state['branch'] == self.branch:
+        if 'repo' in state and state['repo'] == self.repo.user_repo and state['branch'] == self.branch:
             print("Loading state.json")
             self.last_full_check = state['last_full_check']
             self.last_commit = github.GitCommit(None, _load_from_dict = state['last_commit'])
@@ -310,9 +310,9 @@ async def help(ctx):
     await ctx.send(f"""Available bot commands:
 ```
   !check                {check.help}
+  !commit r####/sha     {commit.help}
   !nightlies / !builds  {nightlies.help}
   !whatsnew             {whatsnew.help}
-  !commit               {commit.help}
 ```""")
 
 @bot.command()
@@ -320,11 +320,35 @@ async def help(ctx):
 @commands.max_concurrency(1)
 @commands.cooldown(1, COOLDOWN_TIME, commands.BucketType.guild)
 async def check(ctx, force: bool = True):
-    "Check for new git/svn commits and changes to whatsnew.txt & IMPORTANT-nightly.txt"
+    "Check for new git/svn commits and changes to whatsnew.txt & IMPORTANT-nightly.txt."
     print("!check", force)
     if not await update_checker.check(ctx, force):
         await ctx.send("No changes.")
 
+@bot.command()
+@commands.check(allowed_channel)
+@commands.cooldown(5, COOLDOWN_TIME, commands.BucketType.user)
+async def commit(ctx, rev: str):
+    "Show a specific commit: an svn revision like 'r12345' or git commit like 'd8cf256'."
+    print("!commit " + rev)
+    try:
+        ref = update_checker.repo.decode_rev(rev)
+    except ValueError:
+        await ctx.send("Invalid svn revision or git commit SHA, should look like 'r10000' or 'd8cf256'")
+        return
+    except KeyError:
+        await ctx.send(f"Couldn't find {rev}, the bot hasn't seen that commit.")
+        return
+
+    try:
+        commit = update_checker.repo.last_commits(ref, 1)[0]
+    except github.GitHubError as err:
+        await ctx.send(str(err))
+    else:
+        msg = commit.format()
+        if len(msg) > MSG_SIZE:
+            msg = msg[:MSG_SIZE - 3] + "..."
+        await ctx.send(msg)
 
 @bot.command(aliases = ['nightly', 'builds'])
 @commands.check(allowed_channel)

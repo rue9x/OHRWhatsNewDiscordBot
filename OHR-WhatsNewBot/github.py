@@ -1,3 +1,6 @@
+import json
+import os
+import posixpath
 import re
 import requests
 import time
@@ -51,6 +54,10 @@ class GitCommit:
         self.author = commit['commit']['author']['name']
         self.date = parse_date(commit['commit']['committer']['date'])
         self.url = commit['html_url']
+        # Trim the SHA in the URL to 8 chars
+        head, sha = posixpath.split(self.url)
+        if sha == self.sha:
+            self.url = head + '/' + sha[:8]
 
     def rev(self) -> str:
         "svn or git commit for human consumption"
@@ -68,8 +75,7 @@ class GitCommit:
         return self.short_format()
 
     def format(self):
-        ret = ('=' * 40) + "\n"
-        ret += f"{self.rev()}  [{self.author}]  {time.ctime(self.date)}\n"
+        ret = f"{self.rev()}  [{self.author}]  {time.ctime(self.date)}\n"
         ret += f"{self.url}\n"
         ret += ('-' * 20) + "\n"
         ret += self.message
@@ -83,6 +89,32 @@ class GitHubRepo:
         "user_repo should be a username/reponame"
         self.user_repo = user_repo
         self.repo_url = "https://api.github.com/repos/" + user_repo
+        self.svn_revs = {}  # Maps svn revision -> git sha for seen commits
+        self.load_svn_revs()
+
+    def load_svn_revs(self):
+        "Load .svn_revs from file"
+        self.svn_revs_file = 'svn_revs_' + self.user_repo.replace('/', '_') + '.json'
+        if os.path.isfile(self.svn_revs_file):
+            print("Loading " + self.svn_revs_file)
+            with open(self.svn_revs_file, 'r') as fi:
+                # json keys can't be ints, they are converted to strings, so convert back
+                self.svn_revs = dict((int(k),v) for k,v in json.load(fi).items())
+
+    def save_svn_revs(self):
+        "Save .svn_revs to file"
+        with open(self.svn_revs_file, 'w') as fo:
+            fo.write(json.dumps(self.svn_revs, sort_keys = True, indent = 1))
+
+    def decode_rev(self, rev):
+        """Convert svn revisions to git shas if it's a recent, recognised revision.
+        Throws KeyError if couldn't look it up, ValueError if invalid.
+        Passes through shas."""
+        if rev.startswith('r'):
+            return self.svn_revs[int(rev[1:])]
+        if re.fullmatch("[0-9a-f]*", rev) and len(rev) >= 4:
+            return rev
+        raise ValueError(rev)
 
     def check_rate_limit(self):
         rate_limit = self.get_json("https://api.github.com/rate_limit")
@@ -118,6 +150,8 @@ class GitHubRepo:
         elif resp.status_code == 422:
             # Not the only status code that means rate exceeded
             raise GitHubError("GitHub rate exceeded, or validation failed")
+        elif resp.status_code == 404:
+            raise GitHubError(resp.json()['message'])
         else:
             raise GitHubError("Unknown status code in reply %s\n%s" % (resp, resp.json()))
 
@@ -145,10 +179,13 @@ class GitHubRepo:
         #print(f"/commits {ref} since {since_date} returned {len(resp)}")
         for jsoncommit in resp:
             commit = GitCommit(jsoncommit)
+            if commit.svn_rev:
+                self.svn_revs[commit.svn_rev] = commit.sha
             if since and commit.sha == since.sha:
                 break
             ret.append(commit)
         #print(f" kept {len(ret)} commits")
+        self.save_svn_revs()
         return ret
 
 
@@ -157,4 +194,5 @@ if __name__ == '__main__':
     repo = GitHubRepo("ohrrpgce/ohrrpgce")
     print(repo.current_sha('wip'))
     for commit in repo.last_commits('wip', 5, 'whatsnew.txt'):
+        print('=' * 40)
         print(commit.format())
