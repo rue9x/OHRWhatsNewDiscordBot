@@ -17,6 +17,7 @@ github.verbose = verbose
 with open("config.json", 'r') as fi:
     CONFIG = json.load(fi)
 APP_TOKEN = CONFIG["APP_TOKEN"]
+BOT_INFO = CONFIG["BOT_INFO"]
 RELEASE_WHATSNEW_URL = CONFIG["RELEASE_WHATSNEW_URL"]
 NIGHTLY_CHECK_URL = CONFIG["NIGHTLY_CHECK_URL"]
 GITHUB_REPO = CONFIG["GITHUB_REPO"]
@@ -83,15 +84,19 @@ class UpdateChecker:
                 'last_full_check': self.last_full_check,
             }, indent = '\t'))
 
+    def state_info(self):
+        ret =  " last_commit: " + self.last_commit.sha + "\n"
+        ret += "  " + str(self.last_commit) + "\n"
+        for logname in self.watched_logs:
+            ret += f" {logname} commit: " + self.log_shas[logname][:8] + "\n"
+        timeout = (self.last_full_check + MAX_CHECK_DELAY_HOURS * 3600 - time.time()) / 3600
+        ret += " last_full_check: " + time.ctime(self.last_full_check) + "  Builds time out in %.1f hours\n" % timeout
+        return ret
+
     def print_state(self):
         "Log internal state, for debugging."
         print("State:")
-        print(" last_commit:", self.last_commit.sha)
-        print(" ", self.last_commit)
-        for logname in self.watched_logs:
-            print(f" {logname} commit:", self.log_shas[logname])
-        timeout = (self.last_full_check + MAX_CHECK_DELAY_HOURS * 3600 - time.time()) / 3600
-        print(" last_full_check:", time.ctime(self.last_full_check), " Builds time out in %.1f hours" % timeout)
+        print(self.state_info())
 
     def file_url(self, repo_path):
         return self.repo.blob_url(self.branch, repo_path)
@@ -311,6 +316,7 @@ async def help(ctx):
 ```
   !check                {check.help}
   !commit r####/sha     {commit.help}
+  !info                 {info.help}
   !nightlies / !builds  {nightlies.help}
   !whatsnew             {whatsnew.help}
 ```""")
@@ -349,6 +355,16 @@ async def commit(ctx, rev: str):
         if len(msg) > MSG_SIZE:
             msg = msg[:MSG_SIZE - 3] + "..."
         await ctx.send(msg)
+
+@bot.command()
+@commands.check(allowed_channel)
+async def info(ctx):
+    "Display bot info and status."
+    print("!info")
+    msg = BOT_INFO + "\n"
+    msg += f"Watching https://github.com/{GITHUB_REPO}/commits/{GITHUB_BRANCH}\n"
+    msg += "Current status:\n```" + update_checker.state_info() + "```\nUse `!help` for help."
+    await ctx.send(msg, suppress_embeds = True)
 
 @bot.command(aliases = ['nightly', 'builds'])
 @commands.check(allowed_channel)
@@ -402,7 +418,7 @@ async def on_command_error(ctx, error):
         return  # Ignore
     if isinstance(error, commands.errors.CheckFailure):
         return  # Ignore, already printed a message
-    if isinstance(error, commands.errors.MissingRequiredArgument):
+    if isinstance(error, (commands.errors.MissingRequiredArgument, commands.errors.BadArgument)):
         await ctx.send(str(error))
         return
     if isinstance(error, commands.errors.CommandNotFound):

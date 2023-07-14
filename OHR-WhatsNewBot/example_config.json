@@ -1,4 +1,5 @@
 {
+	"BOT_INFO": "This is https://github.com/ohrrpgce/OHRWhatsNewDiscordBot",
 	"STATE_DIR": "state",
 	"APP_TOKEN": "Insert your app token here.",
 	"ALLOWED_CHANNELS": [
