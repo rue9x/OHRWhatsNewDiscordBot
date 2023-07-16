@@ -318,7 +318,7 @@ async def help(ctx):
   !commit r####/sha     {commit.help}
   !info                 {info.help}
   !nightlies / !builds  {nightlies.help}
-  !whatsnew             {whatsnew.help}
+  !whatsnew [release]   {whatsnew.help}
 ```""")
 
 @bot.command()
@@ -385,17 +385,19 @@ async def rewind_commits(ctx, num: int):
 
 @bot.command()
 @commands.check(allowed_channel)
-@commands.cooldown(1, WHATSNEW_COOLDOWN_TIME, commands.BucketType.guild)
-async def whatsnew(ctx):
-    "Display whatsnew.txt for current nightlies. Might be pretty long!"
+@commands.cooldown(2, WHATSNEW_COOLDOWN_TIME, commands.BucketType.guild)
+async def whatsnew(ctx, release: str = None):
+    "Display whatsnew.txt for a specific release, or by default for current nightlies."
     print("!whatsnew")
 
-    # Don't cache stable whatsnew.txt but just use the most recently downloaded whatsnew.txt
-    ohrlogs.save_from_url(RELEASE_WHATSNEW_URL, 'release_whatsnew.txt')
-    output_message = ohrlogs.compare_release_notes('release_whatsnew.txt', 'whatsnew.txt', newest_only = True, diff = False)
+    # Just use the most recently downloaded whatsnew.txt
+    notes, error = ohrlogs.specific_release_notes('whatsnew.txt', release)
+    if error:
+        await ctx.send(error)
+        return
 
     # If the output is long split into multiple messages. Format each chunk as a code block
-    chunks = list(chunk_message(output_message, formatting = "```{}```"))
+    chunks = list(chunk_message(notes, formatting = "```{}```"))
     if len(chunks) > CHUNKS_LIMIT:
         chunks = chunks[:CHUNKS_LIMIT]
         chunks.append("(snip) ...Too much is new! View the whole file here:")

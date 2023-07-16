@@ -7,8 +7,9 @@ import urllib.request
 import configparser
 import difflib
 
-def parse_items(lines, unwrap = True):
-    """Combine lines into items, which are either header lines or blocks starting with *.
+def parse_items(lines, unwrap = True, keep_blank = False):
+    """Combine lines into items, which are either header lines or blocks starting with *,
+    or blank lines if keep_blank.
     If unwrap, returns a list of long lines (ending in newlines if lines does),
     otherwise returns a list of strings containing multiple newlines."""
     items = []
@@ -17,6 +18,8 @@ def parse_items(lines, unwrap = True):
         stripped = line.strip()
         if stripped == '':
             blankline = True
+            if keep_blank:
+                items.append(line)
             continue
         if blankline or stripped.startswith('*'):
             items.append(line)
@@ -41,9 +44,9 @@ def pairwise(iterable):
         yield prev, item
         prev = item
 
-def compare_release_notes(old_notes, new_notes, newest_only = False, diff = True) -> str:
+def compare_release_notes(old_file: str, new_file: str, newest_only = False, diff = True) -> str:
     '''
-    Takes old_notes and new_notes, paths to two versions of whatsnew.txt
+    Takes old_file and new_file, paths to two versions of whatsnew.txt
     (can also be used with IMPORTANT-nightly.txt).
     Returns a diff of added/removed lines, plus section headers above a changed line.
     Also unwraps lines, removes blanks, and readds blanks before sections.
@@ -111,9 +114,9 @@ def compare_release_notes(old_notes, new_notes, newest_only = False, diff = True
 
         # Show only the first release in the file (the new/upcoming update)
         if newest_only and re.match(release_pattern, item):
-           releases += 1
-           if releases > 1:
-               return retval
+            releases += 1
+            if releases > 1:
+                return retval
 
         # Ignore items which are moved unchanged
         if tag == '+' and ('- ' + item) in diffitems_set:
@@ -132,6 +135,44 @@ def compare_release_notes(old_notes, new_notes, newest_only = False, diff = True
                 retval += edit_item
 
     return retval.lstrip('\n')
+
+def normalise_release_name(name):
+    "Convert hróðvitnir -> Hrodvitnir"
+    return name.title().replace('ó', 'o').replace('ð', 'd')
+
+def specific_release_notes(path: str, release: str = None) -> str:
+    '''
+    Get notes for a specific release in whatsnew.txt, defaulting to the topmost;
+    unwrapping lines.
+    Matches hróðvitnir to hrodvitnir.
+    Returns (notes, error), one of which is None. error suggests corrected spellings.
+    '''
+    with open(path, 'r') as fi:
+        items = parse_items(fi.readlines(), keep_blank = True)
+
+    # A pattern to match release headers: no indentation and a [release name]
+    release_pattern = r"\S.*\[(.+)\]"
+
+    if release:
+        release = normalise_release_name(release)
+    releases = []
+    retval = ""
+    found = False
+    for item in items:
+        match = re.match(release_pattern, item)
+        if match:
+            if found:
+                return retval, None  # The next release after desired
+            releases.append(match.group(1))
+            if release is None or normalise_release_name(match.group(1)) == release:
+                found = True
+        if found:
+            retval += item
+
+    nearby = difflib.get_close_matches(release, releases, 2)
+    if nearby:
+        return None, f"No release named {release}. Did you mean {' or '.join(nearby)}?"
+    return None, f"No release named {release}."
 
 def save_from_url(url, file_path, cache = False):
     ''' 
