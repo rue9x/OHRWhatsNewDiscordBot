@@ -1,0 +1,3 @@
+[submodule "OHR-WhatsNewBot/ohark"]
+	path = OHR-WhatsNewBot/ohark
+	url = https://rbv@bitbucket.org/rbv/ohark.git
