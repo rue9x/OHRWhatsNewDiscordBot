@@ -17,6 +17,11 @@ def parse_date(t) -> float:
     "Parse time in ISO 8601 format into a tuple"
     return time.mktime(time.strptime(t, "%Y-%m-%dT%H:%M:%S%z"))
 
+def trim_str(s, maxlen):
+    if len(s) > maxlen:
+        return s[:maxlen - 3] + "..."
+    return s
+
 
 class GitHubError(Exception):
     pass
@@ -47,10 +52,7 @@ class GitCommit:
             self.svn_rev = int(re.search('@([0-9]+) ', msg_lines[-1]).group(1))
             del msg_lines[-1]
             self.message = '\n'.join(msg_lines).strip()
-        self.headline = msg_lines[0]
-        if len(self.headline) > HEADLINE_LENGTH:
-            self.headline = self.headline[:HEADLINE_LENGTH] + '...'
-
+        self.headline = trim_str(msg_lines[0], HEADLINE_LENGTH)
         self.author = commit['commit']['author']['name']
         self.date = parse_date(commit['commit']['committer']['date'])
         self.url = commit['html_url']

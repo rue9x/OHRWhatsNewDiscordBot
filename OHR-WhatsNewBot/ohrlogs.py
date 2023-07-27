@@ -109,7 +109,7 @@ def compare_release_notes(old_file: str, new_file: str, newest_only = False, dif
             if len(edit_item) > 80:
                 # Sometimes items which are new features have sub-bullet points but are
                 # quite long, so limit the length of header lines
-                edit_item = edit_item[:80] + "...\n"
+                edit_item = edit_item[:80 - 3] + "...\n"
             header_stack.append(edit_item)
 
         # Show only the first release in the file (the new/upcoming update)

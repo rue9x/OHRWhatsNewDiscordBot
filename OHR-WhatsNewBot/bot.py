@@ -1,17 +1,33 @@
+from datetime import datetime, timezone
+import json
 import os
 import posixpath
+import re
+import sys
 import time
-import json
 import traceback
-import ohrlogs
-import github
+
 import discord
 from discord.ext import commands, tasks
+
+import ohrlogs
+import github
+from github import trim_str
+
+sys.path.append(os.path.join(os.getcwd(), "ohark"))
+
+import ohrk.pull_slimesalad as slimesalad
+import ohrk.util
+import ohrk.gamedb as gamedb
+
 
 # Enable verbose logging to console
 verbose = False
 
 github.verbose = verbose
+slimesalad.verbose = verbose
+
+auto_ss_embeds_enabled = True  # Post embed when an SS game is linked to
 
 # Globals are loaded from config.
 with open("config.json", 'r') as fi:
@@ -28,16 +44,27 @@ UPDATES_CHANNEL = CONFIG["UPDATES_CHANNEL"]
 MINUTES_PER_CHECK = CONFIG["MINUTES_PER_CHECK"]
 # If it's been this long without new nightlies then force a check for git commits and log changes
 MAX_CHECK_DELAY_HOURS = CONFIG["MAX_CHECK_DELAY_HOURS"]
+SS_CACHE_SEC = CONFIG["SS_CACHE_SEC"]
 COOLDOWN_TIME = CONFIG["COOLDOWN_TIME"]
 WHATSNEW_COOLDOWN_TIME = CONFIG["WHATSNEW_COOLDOWN_TIME"]
 MSG_SIZE = CONFIG["MSG_SIZE"]
 EMBED_SIZE = CONFIG["EMBED_SIZE"]  # Max size of an embed description. Documented as 4096, API error says 6000
+GAME_DESCR_EMBED_SIZE = CONFIG["GAME_DESCR_EMBED_SIZE"]  # What to trim game descriptions down to in embeds
 CHUNKS_LIMIT = CONFIG["CHUNKS_LIMIT"]  # Max number of whatsnew.txt chunks
 STATE_DIR = CONFIG["STATE_DIR"]
 
 if not os.path.isdir(STATE_DIR):
     os.mkdir(STATE_DIR)
 os.chdir(STATE_DIR)
+
+
+def plural(n_or_iterable, suffix = "s"):
+    if hasattr(n_or_iterable, '__len__'):
+        n = len(n_or_iterable)
+    else:
+        n = n_or_iterable
+    return "" if n == 1 else suffix
+
 
 class UpdateChecker:
     """Checks for and reports new commits (not finished) or changes to watched_logs in GITHUB_REPO.
@@ -271,6 +298,83 @@ class UpdateChecker:
 
 
 
+def ss_game_embed(url, cache = SS_CACHE_SEC, show_dates = False):
+    """Create an Embed for a Slime Salad game page
+    show_dates: show mtimes for each download. Disables showing the mtime for the game."""
+
+    try:
+        game = slimesalad.process_game_page(url, download_screens = False, cache = cache)
+    except Exception as err:
+        print(f"slimesalad.process_game_page({url}) failed:", err)
+        return None
+
+    desc = trim_str(ohrk.util.strip_html(game.description), GAME_DESCR_EMBED_SIZE)
+
+    # Call these after process_game_page, because we can only convert ?p=... links to ?t=...
+    # links (necessary for finding the game in gamedump.php) after processing the
+    # page (which updates slimesalad.link_db), unless we preprocess them all and save the db.
+    url = slimesalad.normalise_game_url(url)
+    gameinfo = slimesalad.get_gameinfo(url, cache = cache)
+
+    embed = discord.Embed()
+    embed.provider.name = "Slime Salad"
+    embed.title = game.name
+    embed.set_author(name = game.author)
+    embed.description = desc
+    embed.url = url
+
+    if game.screenshots:
+        # SS used to show the last screenshot as the thumbnail for the game
+        embed.set_image(url = game.screenshots[-1].url)
+
+    def epoch_date_str(t):
+        "Format Unix timestamp as a date"
+        return time.strftime("%Y/%m/%d", time.gmtime(t))
+
+    downloads_by_date = []
+    for download in game.downloads:
+        description = download.description
+        if description is None:
+            description = ""
+        mtime = 0
+        if gameinfo:
+            gamefile = gameinfo.file_by_url(download.external)
+            if gamefile:
+                # gamefile.date is a datetime
+                mtime = gamefile.date.timestamp()
+                if show_dates or not description:
+                    description = epoch_date_str(mtime) + " " + description
+        downloads_by_date.append( (mtime, download.name(), description) )
+    # Show only latest downloads
+    downloads_by_date.sort(reverse = True)
+
+    max_downloads = 4
+
+    # Game last modified, also tell last download mtime if it differs
+    if not show_dates:
+        # game.mtime (which can be None) for many games is just when it was originally posted
+        mtime = game.mtime or 0
+        if downloads_by_date:
+            mtime = max(mtime, downloads_by_date[0][0])  # latest download mtime
+        if mtime:
+            embed.add_field(name = "Last update", value = epoch_date_str(mtime))
+            max_downloads -= 1
+
+    # Downloads
+    for _, name, description in downloads_by_date[:max_downloads]:
+        embed.add_field(name = name, value = trim_str(description, 65))
+    if len(downloads_by_date) > max_downloads:
+        more_downloads = ", ".join(name for _,name,_ in downloads_by_date[max_downloads:])
+        embed.add_field(name = "More downloads", value = trim_str(more_downloads, 100))
+
+    if game.reviews:
+        review_authors = [review.author for review in game.reviews]
+        embed.add_field(name = f"{len(game.reviews)} review" + plural(game.reviews),
+                        value = trim_str("by " + ", ".join(review_authors), 100))
+
+    return embed
+
+
 # Discord setup:
 intents = discord.Intents.all()
 intents.typing = False  # Disable typing events to reduce unnecessary event handling
@@ -309,6 +413,24 @@ async def allowed_channel(ctx):
         return False
     return True
 
+@bot.listen('on_message')
+#@commands.cooldown(1, 10, commands.BucketType.user)
+async def message_listener(message):
+    "Called for each message, watches for links to SS games, and posts an embed."
+    if message.author == bot.user:
+        return
+    if auto_ss_embeds_enabled or bot.user.mentioned_in(message):
+        if message.embeds:
+            return
+        match = re.search('(https?://)?www.slimesalad.com/forum/view(topic|game).php\?([pt])=([0-9]+)', message.content)
+        if match:
+            if verbose:
+                print(f"Generating SS embed for message by {message.author} in {message.channel}: {message.content}")
+            embed = ss_game_embed(match.group(0))
+            if embed:
+                await message.channel.send("", embed = embed)
+
+
 @bot.command()
 @commands.check(allowed_channel)
 async def help(ctx):
@@ -319,6 +441,8 @@ async def help(ctx):
   !info                 {info.help}
   !nightlies / !builds  {nightlies.help}
   !whatsnew [release]   {whatsnew.help}
+  !disable_embeds       {disable_embeds.help}
+  !enable_embeds        {enable_embeds.help}
 ```""")
 
 @bot.command()
@@ -351,10 +475,27 @@ async def commit(ctx, rev: str):
     except github.GitHubError as err:
         await ctx.send(str(err))
     else:
-        msg = commit.format()
-        if len(msg) > MSG_SIZE:
-            msg = msg[:MSG_SIZE - 3] + "..."
+        msg = trim_str(commit.format(), MSG_SIZE)
         await ctx.send(msg)
+
+# Allowed in all channels
+@bot.command()
+async def disable_embeds(ctx):
+    "Stop the bot from showing embeds for links to SS games, unless it's mentioned."
+    print("!disable_embeds")
+    global auto_ss_embeds_enabled
+    auto_ss_embeds_enabled = False
+    await ctx.send(f"Disabled. Add @{bot.user} to see SS embed")
+
+
+# Allowed in all channels
+@bot.command()
+async def enable_embeds(ctx):
+    "Automatically show an embed whenever an SS game link is posted."
+    print("!disable_embeds")
+    global auto_ss_embeds_enabled
+    auto_ss_embeds_enabled = True
+    await ctx.send("Enabled")
 
 @bot.command()
 @commands.check(allowed_channel)
