@@ -3,6 +3,7 @@ import json
 import os
 import posixpath
 import re
+import shutil
 import sys
 import time
 import traceback
@@ -44,6 +45,7 @@ UPDATES_CHANNEL = CONFIG["UPDATES_CHANNEL"]
 MINUTES_PER_CHECK = CONFIG["MINUTES_PER_CHECK"]
 # If it's been this long without new nightlies then force a check for git commits and log changes
 MAX_CHECK_DELAY_HOURS = CONFIG["MAX_CHECK_DELAY_HOURS"]
+SS_CHECK_HOURS = CONFIG["SS_CHECK_HOURS"]
 SS_CACHE_SEC = CONFIG["SS_CACHE_SEC"]
 COOLDOWN_TIME = CONFIG["COOLDOWN_TIME"]
 WHATSNEW_COOLDOWN_TIME = CONFIG["WHATSNEW_COOLDOWN_TIME"]
@@ -96,6 +98,7 @@ class UpdateChecker:
             for logname in self.watched_logs:
                 self.log_shas[logname] = self.repo.last_sha_touching(self.branch, logname)
                 self.download_revision(self.log_shas[logname], logname)
+            # Don't need to download gamedump.php, self.check_ss_gamelist() will.
             self.save_state()
 
         if verbose:
@@ -168,13 +171,13 @@ class UpdateChecker:
         self.save_state()
 
     @tasks.loop(minutes = MINUTES_PER_CHECK)
-    async def check(self, ctx = None, force = False):
+    async def check_ohrdev(self, ctx = None, force = False):
         """If there have been new builds, or it's been MAX_CHECK_DELAY_HOURS, or force == True,
         then check for and report new commits and changes to IMPORTANT-nightly.txt & whatsnew.txt.
         Returns True if any message was sent.
         ctx:  channel or (command) Context to send to"""
         if verbose:
-            print(f"** UpdateChecker.check(force={force}) ", time.asctime())
+            print(f"** UpdateChecker.check_ohrdev(force={force}) ", time.asctime())
 
         proceed = False
         if force:
@@ -296,11 +299,84 @@ class UpdateChecker:
             msg += "; `!nightlies` shows more"
         await self.message(msg, ctx, view = view)
 
+    @tasks.loop(hours = SS_CHECK_HOURS)
+    async def check_ss_gamelist(self):
+        "Fetch SS gamedump and announce new & changed games"
+        if verbose:
+            print(f"** UpdateChecker.check_ss_gamelist() ", time.asctime())
+
+        new_path = ohrk.scrape.download_url(slimesalad.GAMEDUMP_URL, cache = False)
+        old_path = 'gamedump.php'  # In state/
+
+        if not os.path.isfile(old_path):
+            # First run
+            shutil.copyfile(new_path, old_path)
+            return
+
+        added, removed, changed = slimesalad.compare_gamedumps(old_path, new_path)
+
+        if verbose and added:
+            print("New SS games:")
+        for gameinfo in added:
+            if verbose:
+                print(gameinfo.serialize())
+            # Cache for a few seconds to avoid redownloading gamedump.php
+            embed = ss_game_embed(gameinfo.url, cache = 10)
+            #print(f"New release on Slime Salad: {gameinfo.name} by {gameinfo.author}")
+            await self.message(f"[Slime Salad] New release: **{gameinfo.name}** by {gameinfo.author}", embed = embed)
+
+        # We don't post updates about removed games.
+        if verbose and removed:
+            print("Removed SS games:")
+            for gameinfo in removed:
+                print(gameinfo.serialize())
+
+        if verbose and changed:
+            print("Changed SS games:")
+        for old, new in changed:
+            if verbose:
+                print(old.serialize())
+                print(' -> ')
+                print(new.serialize())
+
+            desc = ""
+            if old.name != new.name:
+                desc += "\n(Renamed from **" + old.name + "**)"
+            # Just the downloads, not the .pics
+            new_files = dict((f.serialize(), f) for f in new.files)
+            old_files = dict((f.serialize(), f) for f in old.files)
+
+            added_files = []
+            for ser, gamefile in new_files.items():
+                if ser not in old_files:
+                    added_files.append(gamefile.name)
+            if len(added_files):
+                desc += f"\nNew download{plural(added_files)} " + ", ".join(added_files) + "\n"
+
+            # for ser, gamefile in old_files.items():
+            #     if ser not in new_files:
+            #         desc += "\nRemoved download " + gamefile.name
+            # We don't mention change in author name, removed downloads
+            # (they're usually replaced), new screenshots, or description
+            # (would have to scrape the page for that).
+
+            if desc == "":
+                # No changes significant enough to post an update.
+                continue
+
+            # Don't cache when known to have changed
+            embed = ss_game_embed(new.url, cache = 10, show_dl_dates = True)
+            #print(f"Update to {new.name} by {new.author} on Slime Salad{desc}")
+            await self.message(f"[Slime Salad] Update to **{new.name}** by {new.author}{desc}", embed = embed)
+
+        # Update state once the update is posted successfully
+        shutil.copyfile(new_path, old_path)  # Leave copy in the cache
 
 
-def ss_game_embed(url, cache = SS_CACHE_SEC, show_dates = False):
+def ss_game_embed(url, cache = SS_CACHE_SEC, show_update_date = False, show_dl_dates = False):
     """Create an Embed for a Slime Salad game page
-    show_dates: show mtimes for each download. Disables showing the mtime for the game."""
+    show_update_date: show when the game description or downloads were last updated.
+    show_dl_dates: show mtimes for each download."""
 
     try:
         game = slimesalad.process_game_page(url, download_screens = False, cache = cache)
@@ -342,8 +418,10 @@ def ss_game_embed(url, cache = SS_CACHE_SEC, show_dates = False):
             if gamefile:
                 # gamefile.date is a datetime
                 mtime = gamefile.date.timestamp()
-                if show_dates or not description:
+                if show_dl_dates:
                     description = epoch_date_str(mtime) + " " + description
+                elif description == "":
+                    description = download.sizestr
         downloads_by_date.append( (mtime, download.name(), description) )
     # Show only latest downloads
     downloads_by_date.sort(reverse = True)
@@ -351,7 +429,7 @@ def ss_game_embed(url, cache = SS_CACHE_SEC, show_dates = False):
     max_downloads = 4
 
     # Game last modified, also tell last download mtime if it differs
-    if not show_dates:
+    if show_update_date:
         # game.mtime (which can be None) for many games is just when it was originally posted
         mtime = game.mtime or 0
         if downloads_by_date:
@@ -390,7 +468,8 @@ async def on_ready():
     else:
         global update_checker
         update_checker = UpdateChecker(bot)
-        update_checker.check.start()
+        update_checker.check_ohrdev.start()
+        update_checker.check_ss_gamelist.start()
     # Be cute
     await bot.change_presence(activity = discord.Activity(type = discord.ActivityType.watching, name = "OHRRPGCE changes"))
 
@@ -426,7 +505,7 @@ async def message_listener(message):
         if match:
             if verbose:
                 print(f"Generating SS embed for message by {message.author} in {message.channel}: {message.content}")
-            embed = ss_game_embed(match.group(0))
+            embed = ss_game_embed(match.group(0), show_update_date = True)
             if embed:
                 await message.channel.send("", embed = embed)
 
@@ -452,7 +531,7 @@ async def help(ctx):
 async def check(ctx, force: bool = True):
     "Check for new git/svn commits and changes to whatsnew.txt & IMPORTANT-nightly.txt."
     print("!check", force)
-    if not await update_checker.check(ctx, force):
+    if not await update_checker.check_ohrdev(ctx, force):
         await ctx.send("No changes.")
 
 @bot.command()
