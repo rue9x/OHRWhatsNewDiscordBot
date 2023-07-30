@@ -34,25 +34,40 @@ auto_ss_embeds_enabled = True  # Post embed when an SS game is linked to
 with open("config.json", 'r') as fi:
     CONFIG = json.load(fi)
 APP_TOKEN = CONFIG["APP_TOKEN"]
+# Header of the message posted in response to !info
 BOT_INFO = CONFIG["BOT_INFO"]
+# Stable whatsnew.txt. Used only for linking to.
 RELEASE_WHATSNEW_URL = CONFIG["RELEASE_WHATSNEW_URL"]
+# URL for nightly-check.ini containing the status of nightly builds
 NIGHTLY_CHECK_URL = CONFIG["NIGHTLY_CHECK_URL"]
+# username/reponame, e.g. ohrrpgce/ohrrpgce
 GITHUB_REPO = CONFIG["GITHUB_REPO"]
+# git branch to watch
 GITHUB_BRANCH = CONFIG["GITHUB_BRANCH"]
-ALLOWED_CHANNELS = CONFIG["ALLOWED_CHANNELS"]  # Channel IDs where commands can be used
+# IDs for channels where commands to check for updates can be used (some commands can be used anywhere)
+ALLOWED_CHANNELS = CONFIG["ALLOWED_CHANNELS"]
+# The channel in which changelog/game updates are automatically posted
 UPDATES_CHANNEL = CONFIG["UPDATES_CHANNEL"]
 # How frequently we check for new nightlies. New nightlies triggers a check for git commits and log changes
 MINUTES_PER_CHECK = CONFIG["MINUTES_PER_CHECK"]
 # If it's been this long without new nightlies then force a check for git commits and log changes
 MAX_CHECK_DELAY_HOURS = CONFIG["MAX_CHECK_DELAY_HOURS"]
 SS_CHECK_HOURS = CONFIG["SS_CHECK_HOURS"]
+# How long (seconds) to cache pages fetched from slimesalad.com
 SS_CACHE_SEC = CONFIG["SS_CACHE_SEC"]
-COOLDOWN_TIME = CONFIG["COOLDOWN_TIME"]
-WHATSNEW_COOLDOWN_TIME = CONFIG["WHATSNEW_COOLDOWN_TIME"]
+# Seconds of delay for commands subject to cooldown
+COOLDOWN_SEC = CONFIG["COOLDOWN_SEC"]
+# Seconds of delay for !whatsnew command
+WHATSNEW_COOLDOWN_SEC = CONFIG["WHATSNEW_COOLDOWN_SEC"]
+# Max size of message content, in characters (documented as 2000)
 MSG_SIZE = CONFIG["MSG_SIZE"]
-EMBED_SIZE = CONFIG["EMBED_SIZE"]  # Max size of an embed description. Documented as 4096, API error says 6000
-GAME_DESCR_EMBED_SIZE = CONFIG["GAME_DESCR_EMBED_SIZE"]  # What to trim game descriptions down to in embeds
-CHUNKS_LIMIT = CONFIG["CHUNKS_LIMIT"]  # Max number of whatsnew.txt chunks
+# Max size of an embed description in characters. Documented as 4096, API error says 6000
+EMBED_SIZE = CONFIG["EMBED_SIZE"]
+# How many chacters to trim game descriptions down to in embeds
+GAME_DESCR_EMBED_SIZE = CONFIG["GAME_DESCR_EMBED_SIZE"]
+# Max number of whatsnew.txt chunks to show (each of MSG_SIZE)
+CHUNKS_LIMIT = CONFIG["CHUNKS_LIMIT"]
+# Directory containing state files
 STATE_DIR = CONFIG["STATE_DIR"]
 
 if not os.path.isdir(STATE_DIR):
@@ -527,7 +542,7 @@ async def help(ctx):
 @bot.command()
 @commands.check(allowed_channel)
 @commands.max_concurrency(1)
-@commands.cooldown(1, COOLDOWN_TIME, commands.BucketType.guild)
+@commands.cooldown(1, COOLDOWN_SEC, commands.BucketType.guild)
 async def check(ctx, force: bool = True):
     "Check for new git/svn commits and changes to whatsnew.txt & IMPORTANT-nightly.txt."
     print("!check", force)
@@ -536,7 +551,7 @@ async def check(ctx, force: bool = True):
 
 @bot.command()
 @commands.check(allowed_channel)
-@commands.cooldown(5, COOLDOWN_TIME, commands.BucketType.user)
+@commands.cooldown(5, COOLDOWN_SEC, commands.BucketType.user)
 async def commit(ctx, rev: str):
     "Show a specific commit: an svn revision like 'r12345' or git commit like 'd8cf256'."
     print("!commit " + rev)
@@ -589,7 +604,7 @@ async def info(ctx):
 @bot.command(aliases = ['nightly', 'builds'])
 @commands.check(allowed_channel)
 @commands.max_concurrency(1)
-@commands.cooldown(1, COOLDOWN_TIME, commands.BucketType.guild)
+@commands.cooldown(1, COOLDOWN_SEC, commands.BucketType.guild)
 async def nightlies(ctx, minimal: bool = False):
     "Display status of and links to nightly builds."
     print("!nightlies")
@@ -605,7 +620,7 @@ async def rewind_commits(ctx, num: int):
 
 @bot.command()
 @commands.check(allowed_channel)
-@commands.cooldown(2, WHATSNEW_COOLDOWN_TIME, commands.BucketType.guild)
+@commands.cooldown(2, WHATSNEW_COOLDOWN_SEC, commands.BucketType.guild)
 async def whatsnew(ctx, release: str = None):
     "Display whatsnew.txt for a specific release, or by default for current nightlies."
     print("!whatsnew")

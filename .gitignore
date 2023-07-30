@@ -1,5 +1,7 @@
+*~
+\#*\#
+.*
 config.json
-*.txt
 OHR-WhatsNewBot/config.json
-OHR-WhatsNewBot/*.json
-OHR-WhatsNewBot/*.txt
+OHR-WhatsNewBot/state/
+__pycache__

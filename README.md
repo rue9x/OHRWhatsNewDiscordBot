@@ -2,19 +2,25 @@
 
 A Discord bot that watches for and reports new git commits, changelog updates (whatsnew.txt and IMPORTANT-nightly.txt) and nightly builds for the OHRRPGCE.
 
+This bot can only be added to one guild (server) at a time.
+
 # Installation:
 
-1. Install Python3 (https://www.python.org/downloads/)
+1. Install Python 3 (https://www.python.org/downloads/)
 
-2. Install module requirements: pip install -r requirements.txt
+2. Install module requirements: `pip install -r requirements.txt`
 
-3. Make a copy of example_config.json, name it config.json and add your APP_TOKEN, UPDATES_CHANNEL and ALLOWED_CHANNELS (where ! commands can be used).
+3. Fetch ohark with `git submodule init`
 
-You can get your APP_TOKEN at http://developer.discord.com and the channel IDs can be obtained by
+4. Make a copy of `OHR-WhatsNewBot/example_config.json`, name it `OHR-WhatsNewBot/config.json` and add your `APP_TOKEN`, `UPDATES_CHANNEL` and `ALLOWED_CHANNELS` (where ! commands can be used). Possibly customise other options (see the top of `bot.py` for docs).
+
+You can get your `APP_TOKEN` at http://developer.discord.com and the channel IDs can be obtained by
 right clicking on a channel on discord and selecting "Copy Channel ID".
 
 # Usage 
-1. Launch with: python3 bot.py -- Success looks like this:
+1. `cd OHR-WhatsNewBot`
+
+2. Launch with: `python3 bot.py` -- Success looks like this:
 
 ```
 discord.client logging in using static token
@@ -25,7 +31,7 @@ Started OHR WhatsNew Bot
 No/invalid state.json, initialising state
 ```
 
-The bot will then immediately perform its first check.
+The bot will then immediately perform its first check (which will find nothing if this is the first run).
 
 2. In any of the allowed channels, users can use `!help`, `!check` and other commands.
 
