@@ -136,6 +136,7 @@ class UpdateChecker:
             ret += f" {logname} commit: " + self.log_shas[logname][:8] + "\n"
         timeout = (self.last_full_check + MAX_CHECK_DELAY_HOURS * 3600 - time.time()) / 3600
         ret += " last_full_check: " + time.ctime(self.last_full_check) + "  Builds time out in %.1f hours\n" % timeout
+        ret += f" Posting embeds for SS game links: {auto_ss_embeds_enabled}\n"
         return ret
 
     def print_state(self):
@@ -316,10 +317,11 @@ class UpdateChecker:
         await self.message(msg, ctx, view = view)
 
     @tasks.loop(hours = SS_CHECK_HOURS)
-    async def check_ss_gamelist(self):
-        "Fetch SS gamedump and announce new & changed games"
+    async def check_ss_gamelist(self, ctx = None) -> bool:
+        "Fetch SS gamedump and announce new & changed games. Returns true if posted anything."
         if verbose:
             print(f"** UpdateChecker.check_ss_gamelist() ", time.asctime())
+        ret = False
 
         new_path = ohrk.scrape.download_url(slimesalad.GAMEDUMP_URL, cache = False)
         old_path = 'gamedump.php'  # In state/
@@ -327,7 +329,7 @@ class UpdateChecker:
         if not os.path.isfile(old_path):
             # First run
             shutil.copyfile(new_path, old_path)
-            return
+            return ret
 
         added, removed, changed = slimesalad.compare_gamedumps(old_path, new_path)
 
@@ -339,7 +341,8 @@ class UpdateChecker:
             # Cache for a few seconds to avoid redownloading gamedump.php
             embed = ss_game_embed(gameinfo.url, cache = 10)
             #print(f"New release on Slime Salad: {gameinfo.name} by {gameinfo.author}")
-            await self.message(f"[Slime Salad] New release: **{gameinfo.name}** by {gameinfo.author}", embed = embed)
+            await self.message(f"[Slime Salad] New release: **{gameinfo.name}** by {gameinfo.author}", ctx, embed = embed)
+            ret = True
 
         # We don't post updates about removed games.
         if verbose and removed:
@@ -383,10 +386,12 @@ class UpdateChecker:
             # Don't cache when known to have changed
             embed = ss_game_embed(new.url, cache = 10, show_dl_dates = True)
             #print(f"Update to {new.name} by {new.author} on Slime Salad{desc}")
-            await self.message(f"[Slime Salad] Update to **{new.name}** by {new.author}{desc}", embed = embed)
+            await self.message(f"[Slime Salad] Update to **{new.name}** by {new.author}{desc}", ctx, embed = embed)
+            ret = True
 
         # Update state once the update is posted successfully
         shutil.copyfile(new_path, old_path)  # Leave copy in the cache
+        return ret
 
 
 def ss_game_embed(url, cache = SS_CACHE_SEC, show_update_date = False, show_dl_dates = False):
@@ -532,6 +537,7 @@ async def help(ctx):
     await ctx.send(f"""Available bot commands:
 ```
   !check                {check.help}
+  !checkgames           {checkgames.help}
   !commit r####/sha     {commit.help}
   !info                 {info.help}
   !nightlies / !builds  {nightlies.help}
@@ -548,6 +554,16 @@ async def check(ctx, force: bool = True):
     "Check for new git/svn commits and changes to whatsnew.txt & IMPORTANT-nightly.txt."
     print("!check", force)
     if not await update_checker.check_ohrdev(ctx, force):
+        await ctx.send("No changes.")
+
+@bot.command()
+@commands.check(allowed_channel)
+@commands.max_concurrency(1)
+@commands.cooldown(1, COOLDOWN_SEC, commands.BucketType.guild)
+async def checkgames(ctx):
+    "Check for new and updated games on Slime Salad."
+    print("!checkgames")
+    if not await update_checker.check_ss_gamelist(ctx):
         await ctx.send("No changes.")
 
 @bot.command()
@@ -576,7 +592,7 @@ async def commit(ctx, rev: str):
 # Allowed in all channels
 @bot.command()
 async def disable_embeds(ctx):
-    "Stop the bot from showing embeds for links to SS games, unless it's mentioned."
+    "Stop the bot from showing embeds for links to SS games, unless it's also @mentioned."
     print("!disable_embeds")
     global auto_ss_embeds_enabled
     auto_ss_embeds_enabled = False
