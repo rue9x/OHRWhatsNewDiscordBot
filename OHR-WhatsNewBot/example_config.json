@@ -1,10 +1,23 @@
 {
+	"BOT_INFO": "This is https://github.com/ohrrpgce/OHRWhatsNewDiscordBot",
+	"STATE_DIR": "state",
 	"APP_TOKEN": "Insert your app token here.",
 	"ALLOWED_CHANNELS": [
 	  123456789012345, 987654321012345
 	],
-	"COOLDOWN_TIME": 120,
-	"MSG_SIZE": 1976,
+	"UPDATES_CHANNEL": 123456789012345,
+	"MINUTES_PER_CHECK": 120,
+	"MAX_CHECK_DELAY_HOURS": 26,
+	"SS_CHECK_HOURS": 8,
+	"SS_CACHE_SEC": 120,
+	"COOLDOWN_SEC": 30,
+	"WHATSNEW_COOLDOWN_SEC": 120,
+	"MSG_SIZE": 1990,
+	"EMBED_SIZE": 4000,
+	"GAME_DESCR_EMBED_SIZE": 250,
+	"CHUNKS_LIMIT": 3,
 	"RELEASE_WHATSNEW_URL": "https://hamsterrepublic.com/ohrrpgce/whatsnew.txt",
-	"NIGHTLY_WHATSNEW_URL": "https://raw.githubusercontent.com/ohrrpgce/ohrrpgce/wip/whatsnew.txt"
-  }
+	"NIGHTLY_CHECK_URL": "https://hamsterrepublic.com/ohrrpgce/nightly/nightly-check.ini",
+	"GITHUB_REPO": "ohrrpgce/ohrrpgce",
+	"GITHUB_BRANCH": "wip",
+}
