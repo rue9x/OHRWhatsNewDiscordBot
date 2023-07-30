@@ -219,6 +219,7 @@ class UpdateChecker:
         if verbose:
             print("logs_changed =", logs_changed)
 
+        self.save_state()  # Save .last_full_check
         if verbose:
             self.print_state()
 
